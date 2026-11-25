@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
+from collections import deque
 from collections.abc import Iterable, MutableMapping
 from typing import Any, TextIO
 
@@ -67,12 +68,33 @@ def redaction_processor(registry: SecretRegistry = SECRETS) -> structlog.types.P
     return _proc
 
 
+class LogRing:
+    """Last N log records, captured *after* redaction (UI-6 live log tail)."""
+
+    def __init__(self, size: int = 2000) -> None:
+        self.records: deque[dict[str, Any]] = deque(maxlen=size)
+
+    def __call__(
+        self, _l: Any, _m: str, event_dict: MutableMapping[str, Any]
+    ) -> MutableMapping[str, Any]:
+        self.records.append({k: _jsonable(v) for k, v in event_dict.items()})
+        return event_dict
+
+    def tail(self, n: int) -> list[dict[str, Any]]:
+        return list(self.records)[-n:]
+
+
+def _jsonable(v: Any) -> Any:
+    return v if isinstance(v, str | int | float | bool) or v is None else str(v)
+
+
 def configure_logging(
     *,
     level: str = "INFO",
     mode_badge: str | None = None,
     stream: TextIO | None = None,
     extra_processors: Iterable[structlog.types.Processor] = (),
+    ring: LogRing | None = None,
 ) -> None:
     processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
@@ -90,6 +112,7 @@ def configure_logging(
     processors += [
         structlog.processors.format_exc_info,
         redaction_processor(),
+        *([ring] if ring is not None else []),
         structlog.processors.JSONRenderer(sort_keys=True),
     ]
     structlog.configure(

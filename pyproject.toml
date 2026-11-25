@@ -6,9 +6,12 @@ requires-python = ">=3.12"
 dependencies = [
     "ccxt>=4.5.94",
     "duckdb>=2.0.1",
+    "fastapi>=0.165.0",
+    "httpx>=0.28.1",
     "polars>=2.2.0",
     "pydantic>=2.14.4",
     "structlog>=26.1.0",
+    "uvicorn>=0.54.0",
     "websockets>=17.4",
 ]
 
@@ -66,6 +69,7 @@ reportMissingTypeStubs = false
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
 pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning:fastapi.testclient", "ignore:Using `httpx` with `starlette.testclient`"]
 markers = [
     "slow: long-running (soak/bench) tests, excluded from make check",
     "chaos: fault-injection tests",
@@ -114,7 +118,16 @@ source_modules = ["helm.research", "helm.backtest"]
 forbidden_modules = ["helm.infra.secrets", "helm.brokers.live", "helm.telegram"]
 
 [[tool.importlinter.contracts]]
-name = "api sends control commands only, never touches brokers (PRD 6.1, 7)"
+name = "api + telegram send control commands only, never touch brokers/engine/secrets (PRD 6.1, 7; decision 0026)"
 type = "forbidden"
-source_modules = ["helm.api"]
-forbidden_modules = ["helm.brokers", "helm.infra.secrets"]
+source_modules = ["helm.api", "helm.telegram"]
+forbidden_modules = ["helm.brokers", "helm.infra.secrets", "helm.app", "helm.oms"]
+
+[[tool.importlinter.contracts]]
+name = "only the app layer may import live broker adapters (EXE-1)"
+type = "forbidden"
+source_modules = [
+    "helm.core", "helm.data", "helm.risk", "helm.oms", "helm.strategy", "helm.backtest",
+    "helm.research", "helm.tracking", "helm.api", "helm.telegram", "helm.infra",
+]
+forbidden_modules = ["helm.brokers.live"]

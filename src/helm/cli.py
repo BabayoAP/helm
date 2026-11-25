@@ -38,11 +38,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _extensions() -> list[Callable[[argparse._SubParsersAction[argparse.ArgumentParser]], None]]:
+    from helm.app.backup_cli import register as backup_cli
     from helm.app.cli import register as app_cli
+    from helm.app.live_cli import register as live_cli
     from helm.app.paper_cli import register as paper_cli
     from helm.data.cli import register as data_cli
 
-    return [data_cli, app_cli, paper_cli]
+    return [data_cli, app_cli, paper_cli, live_cli, backup_cli]
 
 
 def main(argv: Sequence[str] | None = None) -> int:

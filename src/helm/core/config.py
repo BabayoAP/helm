@@ -122,6 +122,29 @@ class EngineConfig(_Cfg):
     bots: tuple[BotConfig, ...] = ()
 
 
+class AlpacaVenueConfig(_Cfg):
+    """Decision 0023. Key names in the secrets store are `<credentials>_key_id` and
+    `<credentials>_secret_key`; the values never appear in config (SEC-2)."""
+
+    environment: Literal["paper", "live"] = "paper"
+    data_feed: Literal["iex", "sip"] = "iex"
+    credentials: str = "alpaca_paper"
+
+
+class VenuesConfig(_Cfg):
+    alpaca: AlpacaVenueConfig = AlpacaVenueConfig()
+
+
+class ControlConfig(_Cfg):
+    """Control plane (UI-8, OPS-1). The API binds localhost unless told otherwise."""
+
+    api_host: str = "127.0.0.1"
+    api_port: int = 8765
+    telegram_enabled: bool = False
+    telegram_rate_per_min: int = Field(default=20, gt=0)
+    heartbeat_every_s: float = Field(default=60.0, gt=0)
+
+
 class PromotionConfig(_Cfg):
     min_trades_backtest: int = 30
     min_deflated_sharpe: Decimal = Decimal("0.95")
@@ -136,3 +159,5 @@ class HelmConfig(_Cfg):
     risk: RiskConfig = RiskConfig()
     security: SecurityConfig = SecurityConfig()
     promotion: PromotionConfig = PromotionConfig()
+    venues: VenuesConfig = VenuesConfig()
+    control: ControlConfig = ControlConfig()

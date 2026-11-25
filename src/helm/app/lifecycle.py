@@ -200,6 +200,24 @@ async def recover(
     return rep
 
 
+async def resync(engine: Engine) -> int:
+    """After a user-stream reconnect (EXE-4): fetch what we may have missed for every
+    working order (fills are deduped, so replays are harmless), adopt terminal
+    states, then reconcile. Returns the number of new fills applied."""
+    applied = 0
+    for order in list(engine.om.working_orders()):
+        coid = order.client_order_id
+        for f in await engine.broker.fills_for_order(coid):
+            before = engine.stats.fills
+            await engine.on_broker_event(f)
+            applied += engine.stats.fills - before
+        venue = await engine.broker.get_order(coid)
+        if venue is not None and engine.om.get(coid).state is not venue.state:
+            engine.om.adopt_state(venue, "resync after reconnect")
+    await engine.reconcile()
+    return applied
+
+
 def _adopt_positions(engine: Engine, positions: list[Position], reason: str) -> None:
     snap = PositionSnapshot(
         account_id=engine.account_id, positions=tuple(positions), ts=engine.clock.now()

@@ -1,7 +1,9 @@
 """`helm paper`: run a paper bot (PAP-1..3) with recovery, account lock and soak reporting.
 
-Until the M4 venue is chosen the feed is the seeded synthetic live feed; the
-engine, risk, OMS, SimBroker and journal are the real ones.
+`--feed alpaca` runs on the Alpaca live feed (IEX, or crypto); `--feed synthetic`
+(default) runs on the seeded synthetic feed, no network or keys needed. The
+engine, risk, OMS, SimBroker (L1 live-fill model) and journal are the same
+either way. No order ever reaches a venue in paper mode (PAP-2).
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ def cmd_paper(a: argparse.Namespace) -> int:
     from helm.infra.clock import LiveClock
     from helm.infra.config import load_config
     from helm.infra.lock import AccountLock
-    from helm.infra.logging import configure_logging, get_logger
+    from helm.infra.logging import LogRing, configure_logging, get_logger
     from helm.oms.journal import Journal
     from helm.strategy.loader import load_strategy
     from helm.tracking.alerts import AlertManager
@@ -41,22 +43,28 @@ def cmd_paper(a: argparse.Namespace) -> int:
         print("no paper bot found in config")
         return 2
     bot = bots[0]
-    configure_logging(level=cfg.engine.log_level, mode_badge=Mode.PAPER.badge)
     log = get_logger(bot=bot.id, account=bot.account_id)
     data_dir = Path(cfg.engine.data_dir)
     acct_dir = data_dir / "accounts" / bot.account_id
     clock = LiveClock()
     symbol = bot.symbols[0]
     venue, _base, quote_ccy, _ = parse_symbol(symbol)
-    inst = Instrument(
-        venue=venue,
-        symbol=symbol,
-        asset_class=AssetClass.CRYPTO,
-        tick_size=Decimal("0.01"),
-        lot_size=Decimal("0.0001"),
-        min_notional=Decimal(5),
-        quote_ccy=quote_ccy,
-    )
+    if a.feed == "alpaca":
+        from helm.data.connectors.alpaca_common import instrument_for
+
+        inst = instrument_for(symbol)
+    else:
+        inst = Instrument(
+            venue=venue,
+            symbol=symbol,
+            asset_class=AssetClass.CRYPTO,
+            tick_size=Decimal("0.01"),
+            lot_size=Decimal("0.0001"),
+            min_notional=Decimal(5),
+            quote_ccy=quote_ccy,
+        )
+    ring = LogRing()
+    configure_logging(level=cfg.engine.log_level, mode_badge=Mode.PAPER.badge, ring=ring)
 
     async def run() -> int:
         with AccountLock(data_dir / "locks", bot.account_id):
@@ -103,22 +111,52 @@ def cmd_paper(a: argparse.Namespace) -> int:
                 params=bot.params,
                 lifecycle=bot.lifecycle,
             )
-            feed = synthetic_feed(
-                symbol,
-                n_events=None,
-                start_ns=clock.now(),
-                step_ms=a.step_ms,
-                seed=a.seed,
-                timeframe=bot.timeframe,
-                realtime=True,
-                now_fn=clock.now,
+            if a.feed == "alpaca":
+                from helm.app.services import alpaca_credentials, alpaca_feed
+                from helm.infra.secrets import EnvSecretStore, FileSecretStore
+
+                store = FileSecretStore() if a.secrets == "file" else EnvSecretStore()
+                feed = alpaca_feed(
+                    bot,
+                    alpaca_credentials(store, cfg.venues.alpaca.credentials),
+                    data_feed=cfg.venues.alpaca.data_feed,
+                    now_fn=clock.now,
+                )
+            else:
+                store = None
+                feed = synthetic_feed(
+                    symbol,
+                    n_events=None,
+                    start_ns=clock.now(),
+                    step_ms=a.step_ms,
+                    seed=a.seed,
+                    timeframe=bot.timeframe,
+                    realtime=True,
+                    now_fn=clock.now,
+                )
+            from helm.app.services import build_control_plane
+
+            cp = build_control_plane(
+                engine,
+                cfg,
+                store,
+                venue=bot.venue,
+                ring=ring,
+                log=log,
+                ui_dir=Path(a.ui_dir) if a.ui_dir else None,
+                api=not a.no_api,
             )
+            alerts.sinks.extend(cp.sinks)
+            if cp.login_url:
+                print(f"control UI: {cp.login_url}", file=sys.stderr)
             recorder = (
                 Recorder(data_dir, f"paper-{bot.account_id}-{time.strftime('%Y%m%d-%H%M%S')}")
                 if a.record
                 else None
             )
-            runner = PaperRunner(engine, feed, config=RunnerConfig(), recorder=recorder)
+            runner = PaperRunner(
+                engine, feed, config=RunnerConfig(), recorder=recorder, services=cp.services
+            )
             deadline = time.monotonic() + a.soak_hours * 3600 if a.soak_hours else None
             rss0 = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             samples: list[dict[str, object]] = []
@@ -175,8 +213,12 @@ def cmd_paper(a: argparse.Namespace) -> int:
 
 def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     p = sub.add_parser(
-        "paper", help="run a paper bot (synthetic feed until the M4 venue is chosen)"
+        "paper", help="run a paper bot on the synthetic or Alpaca live feed (PAP-1..3)"
     )
+    p.add_argument("--feed", choices=["synthetic", "alpaca"], default="synthetic")
+    p.add_argument("--secrets", choices=["env", "file"], default="env")
+    p.add_argument("--ui-dir", default="ui/out", help="static UI build to serve")
+    p.add_argument("--no-api", action="store_true", help="do not start the control API")
     p.add_argument("--config", default="config/helm.example.toml")
     p.add_argument("--risk", default="config/risk.example.toml")
     p.add_argument("--bot", default=None)

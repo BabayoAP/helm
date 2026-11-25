@@ -1,4 +1,7 @@
-"""Paper trading runner (PAP-1..3): live feed + SimBroker (L1 live-fill model).
+"""Engine runner for paper (PAP-1..3) and live: feed + broker stream + periodic tasks.
+
+Paper: live feed + SimBroker (L1 live-fill model). Live: live feed + venue
+user-data stream.
 
 Uses the exact engine loop of backtest and live (I1). Feed events are consumed
 asynchronously; supervision (breakers), reconciliation and flatten-failure
@@ -9,14 +12,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel
 
 from helm.app.engine import Engine
-from helm.core.events import FeedStatus
-from helm.core.models import Bar, Quote, Trade
+from helm.core.events import FeedStatus, OrderEvent
+from helm.core.models import Bar, Fill, Quote, Trade
 from helm.data.recorder import Recorder
 
 
@@ -47,13 +51,18 @@ class PaperRunner:
         config: RunnerConfig | None = None,
         recorder: Recorder | None = None,
         on_event: Callable[[BaseModel], None] | None = None,
+        broker_events: AsyncIterator[OrderEvent | Fill] | None = None,
+        services: Sequence[Callable[[asyncio.Event], Coroutine[Any, Any, None]]] = (),
     ) -> None:
         self.engine = engine
         self.feed = feed
         self.cfg = config or RunnerConfig()
         self.recorder = recorder
         self.on_event = on_event
+        self.broker_events = broker_events
+        self.services = list(services)
         self.events = 0
+        self.broker_event_count = 0
         self._stop = asyncio.Event()
 
     def stop(self) -> None:
@@ -88,8 +97,20 @@ class PaperRunner:
                 break
         self._stop.set()
 
+    async def _consume_broker(self) -> None:
+        """Live venues: user-data stream (order updates + fills) into the engine."""
+        if self.broker_events is None:
+            return
+        async for ev in self.broker_events:
+            await self.engine.on_broker_event(ev)
+            self.broker_event_count += 1
+            if self._stop.is_set():
+                return
+
     async def run(self) -> None:
         timers = [
+            asyncio.create_task(self._consume_broker()),
+            *(asyncio.create_task(svc(self._stop)) for svc in self.services),
             asyncio.create_task(self._every(self.cfg.supervise_every_s, self.engine.supervise)),
             asyncio.create_task(self._every(self.cfg.reconcile_every_s, self.engine.reconcile)),
             asyncio.create_task(self._every(self.cfg.flatten_realert_s, self._flatten_watch)),

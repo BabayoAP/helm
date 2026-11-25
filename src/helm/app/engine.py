@@ -19,6 +19,7 @@ from typing import Any, cast
 from pydantic import ValidationError
 
 from helm.brokers.base import Broker
+from helm.core.calendar import is_open
 from helm.core.clock import NS_PER_S, Clock
 from helm.core.config import RiskConfig
 from helm.core.enums import (
@@ -469,7 +470,7 @@ class Engine:
                 equity=equity,
                 start_of_day_equity=self._sod_equity,
                 high_water_mark=self._hwm,
-                feeds=dict(self.feeds),
+                feeds=self._feeds_in_session(now),
                 blocked_symbols=frozenset(self.blocked),
                 reconcile_mismatch=rec.describe() if rec is not None and not rec.ok else None,
                 clock_skew_ms=self.clock_skew_ms,
@@ -479,6 +480,16 @@ class Engine:
         for trip in trips:
             await self._execute_trip(trip)
         return trips
+
+    def _feeds_in_session(self, now: int) -> dict[str, FeedHealth]:
+        """Staleness only matters while the market is open (EXE-9): a closed equity
+        market is quiet, not stale. Unknown instruments are always checked."""
+        out: dict[str, FeedHealth] = {}
+        for sym, h in self.feeds.items():
+            inst = self.instruments.find(sym)
+            if inst is None or is_open(inst.calendar, now):
+                out[sym] = h
+        return out
 
     async def _execute_trip(self, trip: Trip) -> None:
         a = trip.action
@@ -508,6 +519,15 @@ class Engine:
         ):
             self.alerts.critical(trip.rule_id, f"{trip.rule_id}: {trip.reason}; {a.value}")
             await self.halt(f"{trip.rule_id}: {trip.reason}", flatten=a is Action.FLATTEN_AND_HALT)
+
+    # --------------------------------------------------------------- views
+    @property
+    def start_of_day_equity(self) -> Decimal:
+        return self._sod_equity
+
+    @property
+    def daily_pnl(self) -> Decimal:
+        return self.portfolio.equity() - self._sod_equity
 
     # --------------------------------------------------------------- control
     def _record_state(self, ev: EngineStateChanged | None) -> None:
