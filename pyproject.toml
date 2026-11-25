@@ -4,8 +4,12 @@ version = "0.1.0"
 description = "Helm: personal algorithmic trading terminal and research platform"
 requires-python = ">=3.12"
 dependencies = [
+    "ccxt>=4.5.94",
+    "duckdb>=2.0.1",
+    "polars>=2.2.0",
     "pydantic>=2.14.4",
     "structlog>=26.1.0",
+    "websockets>=17.4",
 ]
 
 [build-system]
@@ -48,7 +52,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "PLC0415", "DTZ"]
-"src/helm/cli.py" = ["PLC0415"]  # lazy imports keep CLI startup fast
+"src/helm/**/cli.py" = ["PLC0415"]  # lazy imports keep CLI startup fast
 
 [tool.pyright]
 include = ["src", "tests"]

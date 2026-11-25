@@ -32,7 +32,8 @@ class FakeExchangeConfig:
     starting_cash: Decimal = Decimal("100000")
     fee_rate: Decimal = Decimal("0.001")
     latency_s: float = 0.0
-    rate_limit_per_s: int | None = None
+    rate_limit_per_s: int | None = None  # requests allowed per rate_window_s
+    rate_window_s: float = 1.0
     p_ambiguous_submit: float = 0.0
     p_reject: float = 0.0
     partial_fill_parts: int = 1
@@ -89,7 +90,7 @@ class FakeExchange:
         limit = self.config.rate_limit_per_s
         if limit is not None:
             now = asyncio.get_running_loop().time()
-            while self._req_times and now - self._req_times[0] >= 1.0:
+            while self._req_times and now - self._req_times[0] >= self.config.rate_window_s:
                 self._req_times.popleft()
             if len(self._req_times) + weight > limit:
                 self.rate_limited_count += 1

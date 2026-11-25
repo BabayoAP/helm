@@ -32,12 +32,15 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--promotion", default="config/promotion.example.toml")
     check.set_defaults(handler=_cmd_config_check)
 
-    for register in _EXTENSIONS:
+    for register in _extensions():
         register(sub)
     return p
 
 
-_EXTENSIONS: list[Callable[[argparse._SubParsersAction[argparse.ArgumentParser]], None]] = []
+def _extensions() -> list[Callable[[argparse._SubParsersAction[argparse.ArgumentParser]], None]]:
+    from helm.data.cli import register as data_cli
+
+    return [data_cli]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
