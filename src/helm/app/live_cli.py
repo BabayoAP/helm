@@ -182,6 +182,8 @@ def cmd_live(a: argparse.Namespace) -> int:
                     symbols=bot.symbols,
                     params=bot.params,
                     lifecycle=bot.lifecycle,
+                    capital_pct=bot.capital_pct,
+                    daily_loss_cap=bot.daily_loss_cap,
                 )
                 feed = alpaca_feed(
                     bot,

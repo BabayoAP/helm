@@ -264,8 +264,10 @@ class RiskManager:
     ) -> None:
         if f.is_flatten or d.post_exp <= d.pre_exp:
             return
-        cap = self.config.max_strategy_capital_pct / HUNDRED * p.equity
-        if self._strategy_post_exposure(p, d) > cap:
+        pct = self.config.max_strategy_capital_pct
+        if p.strategy_capital_pct is not None:
+            pct = min(pct, p.strategy_capital_pct)  # EXE-6: global caps still apply
+        if self._strategy_post_exposure(p, d) > pct / HUNDRED * p.equity:
             raise _Reject("RISK-8", "strategy_allocation")
 
     def _risk9_live_small(

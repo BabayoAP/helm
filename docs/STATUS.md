@@ -135,3 +135,11 @@ Carried over: M1 24 h live recording (DATA-4) and M3 24 h soak can now run on th
 | UI-3 chart: candles, fill markers, resting-order lines | ✅ | `/api/chart`, `tests/integration/test_ui_views.py`; `ui/app/views.tsx` (decision 0033) |
 | UI-4 watchlist: sortable, anomaly highlight | ✅ | snapshot `watchlist`; hand-rolled sortable table (not TanStack, 0033) |
 | UI-5 research: experiments + promotion log | 🟡 | read-only view; compare-runs and promotion controls stay in the CLI (0033) |
+
+## Phase 3 — V2.0 🟡 (in progress; on-chain items intentionally deferred)
+
+| ID | Status | Proof |
+|---|---|---|
+| EXE-6 / RISK-8 per-strategy allocation (tighter of bot + global) and daily loss cap → pause that strategy only | ✅ | `tests/integration/test_multi_strategy.py`, `test_per_strategy_loss_cap_pauses_only_that_strategy`, `test_risk8_strategy_allocation` (decision 0035) |
+| Per-strategy positions/PnL rebuilt from the journal on restart | ✅ | `test_strategy_attribution_survives_restart` |
+| TRK-3/TRK-5 wallet tracker, on-chain execution | ⏸ | deferred: optional, highest-risk, not relevant to the Alpaca setup |

@@ -212,6 +212,12 @@ def test_risk8_strategy_allocation() -> None:
         decide(intent(qty="4"), p=pf(strategy_exposure=D(200)), cfg=cfg)[2] == "strategy_allocation"
     )
     assert decide(intent(qty="2"), p=pf(strategy_exposure=D(200)), cfg=cfg)[0] is Verdict.APPROVE
+    # EXE-6: a bot's own allocation is applied when tighter than the global cap...
+    tight = pf(strategy_exposure=D(200), strategy_capital_pct=D(3))
+    assert decide(intent(qty="2"), p=tight, cfg=cfg)[2] == "strategy_allocation"
+    # ...and never loosens it
+    loose = pf(strategy_exposure=D(200), strategy_capital_pct=D(50))
+    assert decide(intent(qty="4"), p=loose, cfg=cfg)[2] == "strategy_allocation"
 
 
 def test_risk9_live_small_cap() -> None:

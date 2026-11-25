@@ -42,6 +42,9 @@ class BotView(Model):
     lifecycle: str
     paused: bool
     consecutive_rejects: int
+    day_pnl: Decimal = Decimal(0)
+    capital_pct: Decimal | None = None
+    daily_loss_cap: Decimal | None = None
 
 
 class RiskUtilization(Model):

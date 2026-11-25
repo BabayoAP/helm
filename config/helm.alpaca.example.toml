@@ -47,6 +47,8 @@ symbols    = ["alpaca:SPY/USD"]
 timeframe  = "1m"
 lifecycle  = "PAPER"
 params     = { fast = 10, slow = 30, qty = 1 }
+capital_pct    = 25        # EXE-6: at most 25% of equity in this bot (global cap still applies)
+daily_loss_cap = 100       # RISK-8: pause this bot after losing $100 in a day
 
 # 2) Alpaca paper account ("testnet"): real API, fake money. Needs ALL of:
 #    HELM_LIVE_TRADING=1, mode = "live", lifecycle >= LIVE_SMALL (EXE-1).

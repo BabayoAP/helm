@@ -7,7 +7,7 @@ trips (flatten/halt/pause/cancel). Strategies cannot influence any of this.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -27,6 +27,7 @@ class Action(StrEnum):
     PAUSE = "pause"
     BLOCK_SYMBOL = "block_symbol"  # cancel resting orders for symbol + block new entries
     CLEAR_SYMBOL = "clear_symbol"
+    PAUSE_STRATEGY = "pause_strategy"  # RISK-8: one strategy over its own loss cap
     WARN = "warn"
 
 
@@ -36,6 +37,7 @@ class Trip:
     action: Action
     reason: str
     symbol: str | None = None
+    strategy: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,10 @@ class BreakerInputs:
     blocked_symbols: frozenset[str]
     reconcile_mismatch: str | None  # description, or None when reconciled
     clock_skew_ms: float | None  # None = NTP check failed
+    # RISK-8 / EXE-6: per-strategy PnL since the daily reset, and each strategy's cap
+    strategy_day_pnl: Mapping[str, Decimal] = field(default_factory=lambda: {})
+    strategy_loss_caps: Mapping[str, Decimal] = field(default_factory=lambda: {})
+    paused_strategies: frozenset[str] = frozenset()
 
 
 def day_start_ns(ts_ns: int, reset: DailyReset) -> int:
@@ -127,6 +133,20 @@ def check_breakers(inp: BreakerInputs, cfg: RiskConfig) -> list[Trip]:
             )
             if healthy_for >= cfg.feed_healthy_clear_s * NS_PER_S:
                 trips.append(Trip("RISK-12", Action.CLEAR_SYMBOL, "feed healthy", sym))
+
+    # RISK-8 per-strategy daily loss cap: pause only that strategy (global caps still apply)
+    for strat in sorted(inp.strategy_loss_caps):
+        cap = inp.strategy_loss_caps[strat]
+        pnl = inp.strategy_day_pnl.get(strat, Decimal(0))
+        if pnl <= -cap and strat not in inp.paused_strategies:
+            trips.append(
+                Trip(
+                    "RISK-8",
+                    Action.PAUSE_STRATEGY,
+                    f"{strat} day PnL {pnl:.2f} hit its loss cap -{cap}",
+                    strategy=strat,
+                )
+            )
 
     # RISK-13 reconciliation mismatch
     if inp.reconcile_mismatch is not None:

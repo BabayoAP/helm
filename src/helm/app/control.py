@@ -98,6 +98,9 @@ class EnginePort:
                 lifecycle=s.lifecycle.value,
                 paused=s.paused,
                 consecutive_rejects=s.consecutive_rejects,
+                day_pnl=s.day_pnl,
+                capital_pct=s.capital_pct,
+                daily_loss_cap=s.daily_loss_cap,
             )
             for s in e.slots
         )

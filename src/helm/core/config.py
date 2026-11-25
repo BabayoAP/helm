@@ -100,6 +100,10 @@ class BotConfig(_Cfg):
     timeframe: str = "1m"
     params: dict[str, float | int | str | bool] = Field(default_factory=lambda: {})
     lifecycle: LifecycleStage = LifecycleStage.DRAFT
+    # EXE-6 / RISK-8: this bot's capital allocation (% of equity, tighter of this and the
+    # global max_strategy_capital_pct) and its own daily loss cap in account currency
+    capital_pct: Decimal | None = Field(default=None, gt=0, le=100)
+    daily_loss_cap: Decimal | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _account_matches_mode(self) -> BotConfig:

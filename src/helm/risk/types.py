@@ -18,6 +18,7 @@ class PortfolioState:
     multipliers: Mapping[str, Decimal]
     open_orders: int
     strategy_exposure: Decimal  # gross notional attributed to the intent's strategy
+    strategy_capital_pct: Decimal | None = None  # EXE-6 per-strategy allocation (% equity)
 
 
 @dataclass(frozen=True)

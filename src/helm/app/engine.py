@@ -69,6 +69,14 @@ class StrategySlot:
     consecutive_rejects: int = 0
     order_times: deque[int] = field(default_factory=lambda: deque(maxlen=1000))
     positions: dict[str, Decimal] = field(default_factory=lambda: {})
+    capital_pct: Decimal | None = None  # EXE-6 allocation (% of equity)
+    daily_loss_cap: Decimal | None = None  # RISK-8, account currency
+    pnl: Portfolio = field(default_factory=lambda: Portfolio(starting_equity=Decimal(0)))
+    sod_pnl: Decimal = Decimal(0)
+
+    @property
+    def day_pnl(self) -> Decimal:
+        return self.pnl.equity() - self.sod_pnl
 
 
 @dataclass
@@ -151,6 +159,8 @@ class Engine:
         params: Mapping[str, ParamValue] | None = None,
         lifecycle: LifecycleStage = LifecycleStage.DRAFT,
         log: Any = None,
+        capital_pct: Decimal | None = None,
+        daily_loss_cap: Decimal | None = None,
     ) -> StrategySlot:
         slot_positions: dict[str, Decimal] = {}
         ctx = EngineContext(
@@ -163,11 +173,48 @@ class Engine:
             quote_fn=self.quotes.get,
             log=log,
         )
-        slot = StrategySlot(strategy, ctx, lifecycle, tuple(symbols), positions=slot_positions)
+        slot = StrategySlot(
+            strategy,
+            ctx,
+            lifecycle,
+            tuple(symbols),
+            positions=slot_positions,
+            capital_pct=capital_pct,
+            daily_loss_cap=daily_loss_cap,
+            pnl=Portfolio(starting_equity=Decimal(0), multipliers=dict(self.portfolio.multipliers)),
+        )
+        self._rebuild_slot(slot)
         self.slots.append(slot)
         self._slot_by_strategy[strategy.id] = slot
         self._call(slot, "on_start", ctx)
         return slot
+
+    def _mark_slots(self, symbol: str, px: Decimal) -> None:
+        for slot in self.slots:
+            if symbol in slot.pnl.positions:
+                slot.pnl.mark(symbol, px)
+
+    def _rebuild_slot(self, slot: StrategySlot) -> None:
+        """After a restart: this strategy's positions and PnL from its journaled fills, so
+        RISK-8 exposure and the per-strategy loss cap start from the truth."""
+        day0 = day_start_ns(self.clock.now(), self.risk_config.daily_reset)
+        crossed = False
+        for entry in self.journal.entries(kinds=("Fill",), account_id=self.account_id):
+            f = entry.decode()
+            if not isinstance(f, Fill):
+                continue
+            order = self.om.find(f.client_order_id)
+            if order is None or order.intent.strategy_id != slot.strategy.id:
+                continue
+            if not crossed and f.ts >= day0:
+                slot.sod_pnl, crossed = slot.pnl.equity(), True
+            slot.pnl.apply_fill(f)
+            slot.pnl.mark(f.symbol, f.price)
+            slot.positions[f.symbol] = (
+                slot.positions.get(f.symbol, Decimal(0)) + f.qty * f.side.sign
+            )
+        if not crossed:
+            slot.sod_pnl = slot.pnl.equity()
 
     def _call(self, slot: StrategySlot, method: str, *args: Any) -> list[OrderIntent]:
         """Invoke a strategy callback; a crashing strategy is paused, never crashes the engine."""
@@ -194,6 +241,7 @@ class Engine:
             sim_on_bar(bar)  # match orders placed before this bar against it
         await self._drain_broker()
         self.portfolio.mark(bar.symbol, bar.c)
+        self._mark_slots(bar.symbol, bar.c)
         if self.bar_mode_synthetic_quotes and bar.symbol not in self._real_quote_symbols:
             # bar-mode backtests have no quotes: a zero-spread quote at the close stands in
             # (spread is charged by the friction model) so RISK-3/4 see fresh data
@@ -233,6 +281,7 @@ class Engine:
         if sim_on_quote is not None:
             sim_on_quote(q)
         self.portfolio.mark(q.symbol, q.mid)
+        self._mark_slots(q.symbol, q.mid)
         await self._drain_broker()
         for slot in self.slots:
             if q.symbol in slot.symbols:
@@ -306,6 +355,8 @@ class Engine:
         slot.positions[fill.symbol] = (
             slot.positions.get(fill.symbol, Decimal(0)) + fill.qty * fill.side.sign
         )
+        slot.pnl.apply_fill(fill)
+        slot.pnl.mark(fill.symbol, fill.price)
         await self._process(slot, self._call(slot, "on_fill", fill, slot.ctx))
 
     # ------------------------------------------------------- intent pipeline
@@ -338,6 +389,7 @@ class Engine:
             multipliers=dict(self.portfolio.multipliers),
             open_orders=len(self.om.working_orders()),
             strategy_exposure=self._strategy_exposure(slot) if slot else Decimal(0),
+            strategy_capital_pct=slot.capital_pct if slot else None,
         )
 
     def _market_state(self, symbol: str, inst: Instrument | None) -> MarketState:
@@ -514,6 +566,8 @@ class Engine:
         if self._sod_start != start:
             self._sod_start = start
             self._sod_equity = self.portfolio.equity()
+            for slot in self.slots:
+                slot.sod_pnl = slot.pnl.equity()
 
     async def supervise(self) -> list[Trip]:
         now = self.clock.now()
@@ -531,6 +585,13 @@ class Engine:
                 blocked_symbols=frozenset(self.blocked),
                 reconcile_mismatch=rec.describe() if rec is not None and not rec.ok else None,
                 clock_skew_ms=self.clock_skew_ms,
+                strategy_day_pnl={s.strategy.id: s.day_pnl for s in self.slots},
+                strategy_loss_caps={
+                    s.strategy.id: s.daily_loss_cap
+                    for s in self.slots
+                    if s.daily_loss_cap is not None
+                },
+                paused_strategies=frozenset(s.strategy.id for s in self.slots if s.paused),
             ),
             self.risk_config,
         )
@@ -566,6 +627,19 @@ class Engine:
             for o in self.om.working_orders():
                 if o.intent.symbol == trip.symbol:
                     await self._cancel(o.client_order_id)
+        elif a is Action.PAUSE_STRATEGY and trip.strategy is not None:
+            slot = self._slot_by_strategy.get(trip.strategy)
+            if slot is not None and not slot.paused:
+                slot.paused = True
+                self.cancel_algos(trip.strategy)
+                for o in list(self.om.working_orders()):
+                    if o.intent.strategy_id == trip.strategy:
+                        await self._cancel(o.client_order_id)
+                self.alerts.critical(
+                    f"loss_cap:{trip.strategy}",
+                    f"{trip.rule_id}: {trip.reason}; strategy paused, its orders cancelled "
+                    "(positions kept; exits allowed)",
+                )
         elif a is Action.CLEAR_SYMBOL and trip.symbol is not None:
             self.blocked.discard(trip.symbol)
             self.alerts.info(

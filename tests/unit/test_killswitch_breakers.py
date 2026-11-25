@@ -98,6 +98,20 @@ def test_daily_loss_and_drawdown() -> None:
     )
 
 
+def test_per_strategy_loss_cap_pauses_only_that_strategy() -> None:
+    caps = {"a": D(100), "b": D(100)}
+    inp = _inp(strategy_day_pnl={"a": D(-100), "b": D(-40)}, strategy_loss_caps=caps)
+    trips = check_breakers(inp, RiskConfig())
+    assert [(t.rule_id, t.action, t.strategy) for t in trips] == [
+        ("RISK-8", Action.PAUSE_STRATEGY, "a")
+    ]
+    already = _inp(
+        strategy_day_pnl={"a": D(-500)}, strategy_loss_caps=caps, paused_strategies=frozenset("a")
+    )
+    assert check_breakers(already, RiskConfig()) == []  # no repeat while paused
+    assert check_breakers(_inp(strategy_loss_caps=caps), RiskConfig()) == []  # no PnL yet
+
+
 def test_feed_staleness_block_and_clear() -> None:
     now = 100 * NS
     fresh = FeedHealth(FeedState.LIVE, now - 100 * 10**6, now - 20 * NS)
