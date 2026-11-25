@@ -144,4 +144,5 @@ Carried over: M1 24 h live recording (DATA-4) and M3 24 h soak can now run on th
 | Per-strategy positions/PnL rebuilt from the journal on restart | ✅ | `test_strategy_attribution_survives_restart` |
 | RES-5 sandbox: AST allowlist → lint → isolated child (no env/credentials, audit-hook runtime guard, CPU/mem/time limits) → lookahead + smoke backtest | ✅ | `tests/integration/test_sandbox.py`: 17 static + 7 runtime attack cases blocked, no credentials visible, runaway killed (decision 0036) |
 | RES-5 idea → draft via Claude (idea text only; draft can never promote/deploy) | ✅ | `helm research draft --idea ...`; `test_generator_sends_only_the_idea_and_returns_code` (decision 0037) |
+| EXE-5 (Phase 3) VWAP by participation + Iceberg; per-slice risk; stop on cancel/reject | ✅ | `test_vwap_participates_in_bar_volume_and_finishes_at_deadline`, `test_iceberg_shows_one_slice_at_a_time_and_stops_on_cancel` (decision 0032) |
 | TRK-3/TRK-5 wallet tracker, on-chain execution | ⏸ | deferred: optional, highest-risk, not relevant to the Alpaca setup |

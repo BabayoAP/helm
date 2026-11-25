@@ -41,10 +41,21 @@ from helm.core.events import (
     IntentEvent,
     OrderEvent,
 )
-from helm.core.models import Bar, Fill, Instrument, Order, OrderIntent, Quote, RiskDecision, Trade
+from helm.core.models import (
+    Bar,
+    Fill,
+    Instrument,
+    Order,
+    OrderIntent,
+    Quote,
+    RiskDecision,
+    Trade,
+    TwapSpec,
+    VwapSpec,
+)
 from helm.data.instruments import InstrumentRegistry
 from helm.oms.accounting import Portfolio
-from helm.oms.algos import TwapState, twap_schedule
+from helm.oms.algos import AlgoBase, IcebergState, TwapState, VwapState, twap_schedule
 from helm.oms.journal import Journal
 from helm.oms.order_manager import OrderManager
 from helm.oms.reconciler import ReconcileResult, reconcile
@@ -141,7 +152,7 @@ class Engine:
         self.last_resume_code: str | None = None
         self.flatten_failures = 0
         self.bar_mode_synthetic_quotes = True
-        self.algos: list[TwapState] = []
+        self.algos: list[AlgoBase] = []
         self._algo_seq = 0
         self._real_quote_symbols: set[str] = set()
 
@@ -431,54 +442,73 @@ class Engine:
     ) -> None:
         for raw in intents:
             if raw.exec_algo is not None and not is_flatten:
-                await self._start_twap(slot, raw)
+                await self._start_algo(slot, raw)
             else:
                 await self.submit_intent(slot, raw, is_flatten=is_flatten)
 
     # ------------------------------------------------------------ algos (EXE-5)
-    async def _start_twap(self, slot: StrategySlot | None, parent: OrderIntent) -> None:
-        assert parent.exec_algo is not None
+    def now(self) -> int:  # AlgoView
+        return self.clock.now()
+
+    def last_bar(self, symbol: str) -> Bar | None:  # AlgoView
+        tfs = self.history.timeframes(symbol)
+        bars = self.history.last(symbol, tfs[0], 1, self.clock.now()) if tfs else []
+        return bars[-1] if bars else None
+
+    def order_state(self, client_order_id: str) -> OrderState | None:  # AlgoView
+        o = self.om.find(client_order_id)
+        return o.state if o is not None else None
+
+    async def _start_algo(self, slot: StrategySlot | None, parent: OrderIntent) -> None:
+        spec = parent.exec_algo
+        assert spec is not None
         self._journal(IntentEvent(intent=parent, ts=self.clock.now()), key=parent.strategy_id)
         inst = self.instruments.find(parent.symbol)
         lot = inst.lot_size if inst is not None else Decimal("0.00000001")
-        spec = parent.exec_algo
         self._algo_seq += 1
-        algo = TwapState(
-            algo_id=f"{self.run_id}-twap-{self._algo_seq}",
-            parent=parent,
-            strategy_id=parent.strategy_id,
-            schedule=twap_schedule(
-                parent.qty, spec.slices, self.clock.now(), spec.duration_s * NS_PER_S, lot
-            ),
-        )
+        base = {
+            "algo_id": f"{self.run_id}-{spec.kind}-{self._algo_seq}",
+            "parent": parent,
+            "strategy_id": parent.strategy_id,
+        }
+        algo: AlgoBase
+        if isinstance(spec, TwapSpec):
+            algo = TwapState(
+                **base,  # type: ignore[arg-type]
+                schedule=twap_schedule(
+                    parent.qty, spec.slices, self.clock.now(), spec.duration_s * NS_PER_S, lot
+                ),
+            )
+        elif isinstance(spec, VwapSpec):
+            algo = VwapState(**base, spec=spec, lot=lot, start_ns=self.clock.now())  # type: ignore[arg-type]
+        else:
+            algo = IcebergState(**base, spec=spec, lot=lot)  # type: ignore[arg-type]
         self.algos.append(algo)
         await self.run_algos()
 
     async def run_algos(self) -> None:
-        """Send due TWAP slices, at most one per algo per tick. Each slice is an ordinary
-        intent: risk-checked on its own. Nothing is sent while the engine or the strategy
-        is paused; the schedule slides back instead of bursting on resume."""
-        now = self.clock.now()
+        """Send at most one child per algo per tick. Each child is an ordinary intent:
+        risk-checked on its own. Nothing is sent while the engine or the strategy is
+        paused (TWAP's schedule slides back instead of bursting on resume)."""
         for algo in list(self.algos):
             slot = self._slot_by_strategy.get(algo.strategy_id)
-            if algo.done:
-                self.algos.remove(algo)
-                continue
-            if algo.schedule[algo.sent][0] > now:
+            qty = algo.next_qty(self)
+            if qty is None:
+                if algo.done:
+                    self._finish_algo(algo)
                 continue
             if self.ks.state is not EngineState.RUNNING or (slot is not None and slot.paused):
                 algo.deferred += 1
                 continue
-            nxt = algo.take_next(now)  # at most one slice per tick
-            assert nxt is not None
-            k, qty = nxt
-            order = await self.submit_intent(slot, algo.child(k, qty))
-            if order is None:
-                algo.rejected += 1
-            else:
-                algo.children.append(order.client_order_id)
+            order = await self.submit_intent(slot, algo.child(qty))
+            algo.record(self, qty, order.client_order_id if order is not None else None)
             if algo.done:
-                self.algos.remove(algo)
+                self._finish_algo(algo)
+
+    def _finish_algo(self, algo: AlgoBase) -> None:
+        self.algos.remove(algo)
+        if algo.stopped:
+            self.alerts.warn(f"algo:{algo.algo_id}", f"{algo.algo_id}: {algo.stopped}")
 
     def cancel_algos(self, strategy_id: str | None = None) -> int:
         keep = [a for a in self.algos if strategy_id is not None and a.strategy_id != strategy_id]

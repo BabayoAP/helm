@@ -149,3 +149,106 @@ def test_flatten_intents_never_go_through_twap(tmp_path: Path) -> None:
         assert rig.engine.cancel_algos("nobody") == 0
 
     asyncio.run(run())
+
+
+# ---------------------------------------------------------- Phase 3: VWAP, Iceberg
+from helm.core.models import IcebergSpec, VwapSpec  # noqa: E402
+
+
+class AlgoOnce(BaseStrategy):
+    id = "algo"
+
+    def __init__(self, intent: OrderIntent) -> None:
+        super().__init__()
+        self.intent = intent
+        self.fired = False
+
+    def on_bar(self, bar: Bar, ctx: Context) -> list[OrderIntent]:
+        if self.fired:
+            return []
+        self.fired = True
+        return [self.intent]
+
+
+def _parent(
+    qty: str, algo: object, typ: OrderType = OrderType.MARKET, limit: str | None = None
+) -> OrderIntent:
+    return OrderIntent(
+        strategy_id="algo",
+        symbol=SYM,
+        side=Side.BUY,
+        type=typ,
+        qty=D(qty),
+        limit_price=D(limit) if limit else None,
+        exec_algo=algo,  # type: ignore[arg-type]
+    )
+
+
+def test_vwap_participates_in_bar_volume_and_finishes_at_deadline(tmp_path: Path) -> None:
+    async def run() -> None:
+        rig = Rig(tmp_path)  # Rig bars carry volume 1
+        spec = VwapSpec(participation=D("0.5"), duration_s=300)
+        rig.engine.add_strategy(AlgoOnce(_parent("3", spec)), symbols=(SYM,), params={})
+        for _ in range(4):
+            await rig.tick()
+        qtys = [o.intent.qty for o in rig.engine.om.all()]
+        assert qtys and all(q == D("0.5") for q in qtys)  # 50% of each 1-unit bar
+        assert all(o.intent.tag.startswith("vwap:r1-vwap-1") for o in rig.engine.om.all())
+        for _ in range(3):  # past the 300 s deadline: the remainder goes in one slice
+            await rig.tick()
+        assert sum(o.intent.qty for o in rig.engine.om.all()) == D(3)
+        assert rig.engine.algos == []
+
+        rig2 = Rig(tmp_path / "nofinish")
+        drop = VwapSpec(participation=D("0.1"), duration_s=60, finish=False)
+        rig2.engine.add_strategy(AlgoOnce(_parent("3", drop)), symbols=(SYM,), params={})
+        for _ in range(4):
+            await rig2.tick()
+        assert rig2.engine.algos == []
+        assert sum(o.intent.qty for o in rig2.engine.om.all()) < D(3)
+        assert any("remainder dropped" in a.message for a in rig2.engine.alerts.sent)
+
+    asyncio.run(run())
+
+
+def test_iceberg_shows_one_slice_at_a_time_and_stops_on_cancel(tmp_path: Path) -> None:
+    async def run() -> None:
+        rig = Rig(tmp_path)
+        spec = IcebergSpec(display_qty=D(1))
+        rig.engine.add_strategy(
+            AlgoOnce(_parent("3", spec, OrderType.LIMIT, "100.5")), symbols=(SYM,), params={}
+        )
+        await rig.tick("100")  # slice 1 posted and (marketable) filled
+        await rig.tick("100")
+        await rig.tick("100")
+        await rig.tick("100")
+        orders = rig.engine.om.all()
+        assert [o.intent.qty for o in orders] == [D(1), D(1), D(1)]
+        assert all(o.intent.type is OrderType.LIMIT for o in orders)
+        assert rig.engine.portfolio.positions[SYM].qty == D(3)
+        assert rig.engine.algos == []
+
+        # a resting slice that gets canceled stops the iceberg (no silent re-posting)
+        rig2 = Rig(tmp_path / "c")
+        rig2.engine.add_strategy(
+            AlgoOnce(_parent("3", spec, OrderType.LIMIT, "99")), symbols=(SYM,), params={}
+        )
+        await rig2.tick("100")
+        (first,) = rig2.engine.om.all()
+        await rig2.engine._cancel(first.client_order_id)  # pyright: ignore[reportPrivateUsage]
+        await rig2.pump()
+        await rig2.tick("100")
+        assert len(rig2.engine.om.all()) == 1 and rig2.engine.algos == []
+        assert any("iceberg stopped" in a.message for a in rig2.engine.alerts.sent)
+
+    asyncio.run(run())
+
+
+def test_algo_spec_validation() -> None:
+    with pytest.raises(ValidationError, match="iceberg must be a limit"):
+        _parent("1", IcebergSpec(display_qty=D(1)))
+    with pytest.raises(ValidationError):
+        VwapSpec(participation=D("0.9"), duration_s=60)  # > 50% of volume is not VWAP
+    it = _parent("2", {"kind": "vwap", "participation": "0.2", "duration_s": 60})
+    assert isinstance(it.exec_algo, VwapSpec)  # discriminated by kind (journal round-trip)
+    assert OrderIntent.model_validate_json(it.model_dump_json()) == it
