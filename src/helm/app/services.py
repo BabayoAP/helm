@@ -16,6 +16,7 @@ import secrets as pysecrets
 import sys
 from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ from helm.infra.logging import LogRing
 from helm.infra.secrets import SecretStore
 from helm.infra.ws import connect_ws
 from helm.risk.breakers import day_start_ns
+from helm.tracking.rules import RuleContext, RuleEngine
+from helm.tracking.watchlist import Watchlist
 
 Service = Callable[[asyncio.Event], Coroutine[Any, Any, None]]
 
@@ -84,12 +87,24 @@ class QueueFeed:
 
 
 def alpaca_feed(
-    bot: BotConfig, creds: AlpacaCredentials, *, data_feed: str, now_fn: Callable[[], int]
+    bot: BotConfig,
+    creds: AlpacaCredentials,
+    *,
+    data_feed: str,
+    now_fn: Callable[[], int],
+    extra_symbols: tuple[str, ...] = (),
 ) -> AsyncIterator[BaseModel]:
+    """Bot symbols plus same-asset-class watch-only symbols (one stream per asset class)."""
     crypto = is_crypto(bot.symbols[0])
+    extra = tuple(s for s in extra_symbols if is_crypto(s) == crypto and s not in bot.symbols)
     rest = AlpacaOhlcvClient(creds, crypto=crypto, feed=data_feed)
     handler = AlpacaFeedHandler(
-        creds, bot.symbols, timeframe=bot.timeframe, rest=rest, quotes=True, now_fn=now_fn
+        creds,
+        (*bot.symbols, *extra),
+        timeframe=bot.timeframe,
+        rest=rest,
+        quotes=True,
+        now_fn=now_fn,
     )
     url = stream_url(crypto=crypto, feed=data_feed)
     qf = QueueFeed()
@@ -150,6 +165,34 @@ def daily_summary_service(engine: Engine, *, check_every_s: float = 60.0) -> Ser
     return run
 
 
+# -------------------------------------------------------------- tracking rules
+def tracking_service(
+    engine: Engine, watchlist: Watchlist, rules: RuleEngine, *, every_s: float = 1.0
+) -> Service:
+    """TRK-2: evaluate alert rules against the watchlist and engine state."""
+
+    async def run(stop: asyncio.Event) -> None:
+        while not await _sleep(stop, every_s):
+            eq, hwm = engine.portfolio.equity(), engine.high_water_mark
+            rules.evaluate(
+                RuleContext(
+                    rows={r.symbol: r for r in watchlist.rows()},
+                    daily_pnl=engine.daily_pnl,
+                    drawdown_pct=(hwm - eq) / hwm * 100 if hwm > 0 else Decimal(0),
+                    feeds={s: h.state.value for s, h in engine.feeds.items()},
+                    engine_state=engine.ks.state,
+                )
+            )
+
+    return run
+
+
+def make_watchlist(cfg: HelmConfig, bot: BotConfig) -> Watchlist:
+    return Watchlist(
+        cfg.tracking.watch_symbols, traded=bot.symbols, z_window=cfg.tracking.volume_z_window
+    )
+
+
 # ---------------------------------------------------------------- control plane
 @dataclass
 class ControlPlane:
@@ -202,11 +245,18 @@ def build_control_plane(
     log: Any,
     ui_dir: Path | None = None,
     api: bool = True,
+    watchlist: Watchlist | None = None,
 ) -> ControlPlane:
     from helm.api.app import create_app  # noqa: PLC0415
     from helm.telegram.bot import TelegramAlertSink, TelegramBot, TelegramClient  # noqa: PLC0415
 
-    port = EnginePort(engine, venue=venue, ring=ring)
+    port = EnginePort(
+        engine,
+        venue=venue,
+        ring=ring,
+        watchlist=watchlist,
+        research_db=Path(cfg.engine.data_dir) / "research.sqlite",
+    )
     services: list[Service] = []
     sinks: list[Callable[[Alert], None]] = [console_resume_code_sink(port.resume_code)]
     login_url: str | None = None
@@ -251,4 +301,8 @@ def build_control_plane(
     if hb is not None:
         services.append(hb)
     services.append(daily_summary_service(engine))
+    if watchlist is not None and cfg.tracking.rules:
+        services.append(
+            tracking_service(engine, watchlist, RuleEngine(cfg.tracking.rules, engine.alerts))
+        )
     return ControlPlane(port=port, services=services, login_url=login_url, sinks=sinks)

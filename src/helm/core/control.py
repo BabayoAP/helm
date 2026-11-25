@@ -61,6 +61,20 @@ class DecisionView(Model):
     reason: str
 
 
+class WatchRow(Model):
+    """TRK-1 watchlist row."""
+
+    symbol: str
+    last: Decimal | None = None
+    bid: Decimal | None = None
+    ask: Decimal | None = None
+    change_24h_pct: Decimal | None = None
+    spread_pct: Decimal | None = None
+    volume_z: float | None = None
+    traded: bool = False
+    ts: int = 0
+
+
 class EngineSnapshot(Model):
     mode: Mode
     venue: str
@@ -78,6 +92,73 @@ class EngineSnapshot(Model):
     decisions: tuple[DecisionView, ...]
     reconcile_ok: bool | None
     ts: int
+    watchlist: tuple[WatchRow, ...] = ()
+
+
+class ChartBar(Model):
+    ts: int  # bar open, UTC ns
+    o: Decimal
+    h: Decimal
+    l: Decimal  # noqa: E741
+    c: Decimal
+    v: Decimal
+
+
+class ChartMarker(Model):
+    ts: int
+    side: str
+    price: Decimal
+    qty: Decimal
+    tag: str = ""
+
+
+class OrderLine(Model):
+    client_order_id: str
+    side: str
+    price: Decimal
+    qty: Decimal
+
+
+class ChartView(Model):
+    """UI-3: bars + trade markers + resting order lines for one symbol."""
+
+    symbol: str
+    timeframe: str
+    bars: tuple[ChartBar, ...]
+    markers: tuple[ChartMarker, ...]
+    order_lines: tuple[OrderLine, ...]
+
+
+class ExperimentView(Model):
+    run_id: str
+    ts: int
+    kind: str
+    strategy: str
+    code_hash: str
+    params: dict[str, object]
+    passed: bool | None
+    sharpe: float | None
+    trades: int | None
+    git_hash: str
+    failures: tuple[str, ...] = ()
+
+
+class PromotionView(Model):
+    ts: int
+    strategy: str
+    code_hash: str
+    params_hash: str
+    from_stage: str
+    to_stage: str
+    approved_by: str
+    note: str
+
+
+class ResearchView(Model):
+    """UI-5: recent experiments and the promotion log (read-only)."""
+
+    experiments: tuple[ExperimentView, ...]
+    promotions: tuple[PromotionView, ...]
 
 
 class ControlPort(Protocol):
@@ -88,3 +169,7 @@ class ControlPort(Protocol):
     async def command(self, cmd: ControlCommand) -> str: ...
 
     def now(self) -> int: ...
+
+    def chart(self, symbol: str, n: int = 500) -> ChartView | None: ...
+
+    def research(self, limit: int = 100) -> ResearchView: ...

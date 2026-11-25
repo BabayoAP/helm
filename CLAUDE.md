@@ -35,6 +35,8 @@ Build status per requirement: docs/STATUS.md. Decisions: docs/decisions/.
 - Long-running extras (API, Telegram, heartbeat, daily summary) are `services` passed to the runner (`helm.app.services`). The one-time resume code goes to Telegram + console stderr, never the structured log.
 - Research (Phase 2): `helm.research.validation.suite` takes an injected evaluator (0031); `helm.app.research` supplies the event-driven one, DataSource/RunSettings (serialisable for reruns) and journal account stats. Experiments + promotions live in `data/research.sqlite` (append-only).
 - Strategies declare `param_space` (`helm.strategy.params`). A strategy version = (path, code hash of its package dir, params hash); any change => DRAFT (0030). Real money reads gate (c) from the promotion registry.
+- Tracking: `helm.tracking.watchlist` (TRK-1) + `helm.tracking.rules` (TRK-2, edge-triggered; delivery via AlertManager). Runner `engine_symbols` keeps watch-only symbols out of the engine.
+- TWAP: `OrderIntent.exec_algo = TwapSpec(...)`; engine slices via `helm.oms.algos` (0032).
 - UI: `ui/` Next.js static export (`make ui`), served by the API at `/` (0027). Backups: `helm backup|restore` with `age` (0028).
 
 ## Running things

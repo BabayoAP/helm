@@ -17,8 +17,16 @@ import {
   snapshotSocket,
   takeToken,
 } from "@/lib/api";
+import { ChartPanel, ResearchPanel, WatchlistPanel } from "./views";
 
-type Tab = "dashboard" | "logs";
+type Tab = "dashboard" | "chart" | "watchlist" | "research" | "logs";
+const TABS: [Tab, string][] = [
+  ["dashboard", "Dashboard"],
+  ["chart", "Chart"],
+  ["watchlist", "Watchlist"],
+  ["research", "Research"],
+  ["logs", "Logs & alerts"],
+];
 
 export default function Page() {
   const [token, setToken] = useState<string | null>(null);
@@ -60,9 +68,9 @@ export default function Page() {
     <>
       <Header snap={snap} connected={connected} onAct={act} />
       <div className="tabs">
-        {(["dashboard", "logs"] as Tab[]).map((t) => (
+        {TABS.map(([t, label]) => (
           <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-            {t === "dashboard" ? "Dashboard" : "Logs & alerts"}
+            {label}
           </button>
         ))}
         <span className="spacer" />
@@ -73,7 +81,11 @@ export default function Page() {
         {snap.reconcile_ok === false && (
           <div className="banner">Reconciliation mismatch: engine paused until resolved.</div>
         )}
-        {tab === "dashboard" ? <Dashboard snap={snap} onAct={act} /> : <Logs token={token} snap={snap} />}
+        {tab === "dashboard" && <Dashboard snap={snap} onAct={act} />}
+        {tab === "chart" && <ChartPanel token={token} snap={snap} />}
+        {tab === "watchlist" && <WatchlistPanel rows={snap.watchlist ?? []} />}
+        {tab === "research" && <ResearchPanel token={token} />}
+        {tab === "logs" && <Logs token={token} snap={snap} />}
       </main>
     </>
   );

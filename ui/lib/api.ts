@@ -49,6 +49,49 @@ export interface DecisionView {
   rule_id: string;
   reason: string;
 }
+export interface WatchRow {
+  symbol: string;
+  last: string | null;
+  bid: string | null;
+  ask: string | null;
+  change_24h_pct: string | null;
+  spread_pct: string | null;
+  volume_z: number | null;
+  traded: boolean;
+  ts: number;
+}
+export interface ChartView {
+  symbol: string;
+  timeframe: string;
+  bars: { ts: number; o: string; h: string; l: string; c: string; v: string }[];
+  markers: { ts: number; side: string; price: string; qty: string; tag: string }[];
+  order_lines: { client_order_id: string; side: string; price: string; qty: string }[];
+}
+export interface ResearchView {
+  experiments: {
+    run_id: string;
+    ts: number;
+    kind: string;
+    strategy: string;
+    code_hash: string;
+    params: Record<string, unknown>;
+    passed: boolean | null;
+    sharpe: number | null;
+    trades: number | null;
+    git_hash: string;
+    failures: string[];
+  }[];
+  promotions: {
+    ts: number;
+    strategy: string;
+    code_hash: string;
+    params_hash: string;
+    from_stage: string;
+    to_stage: string;
+    approved_by: string;
+    note: string;
+  }[];
+}
 export interface Snapshot {
   mode: Mode;
   venue: string;
@@ -65,6 +108,7 @@ export interface Snapshot {
   alerts: AlertView[];
   decisions: DecisionView[];
   reconcile_ok: boolean | null;
+  watchlist: WatchRow[];
 }
 export type LogRecord = Record<string, string | number | boolean | null>;
 export type Action = "start" | "stop" | "pause" | "resume" | "flatten" | "kill";
@@ -91,6 +135,20 @@ export async function fetchLogs(token: string, n = 300): Promise<LogRecord[]> {
   if (!r.ok) throw new Error(`logs: HTTP ${r.status}`);
   return (await r.json()) as LogRecord[];
 }
+
+async function getJson<T>(token: string, path: string): Promise<T | null> {
+  const r = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+  if (r.status === 404) return null;
+  if (r.status === 401) throw new Error("unauthorized");
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return (await r.json()) as T;
+}
+
+export const fetchChart = (token: string, symbol: string) =>
+  getJson<ChartView>(token, `/api/chart?symbol=${encodeURIComponent(symbol)}&n=500`);
+
+export const fetchResearch = async (token: string): Promise<ResearchView> =>
+  (await getJson<ResearchView>(token, "/api/research?limit=200")) ?? { experiments: [], promotions: [] };
 
 export async function control(
   token: string,

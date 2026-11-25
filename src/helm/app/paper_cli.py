@@ -125,6 +125,7 @@ def cmd_paper(a: argparse.Namespace) -> int:
                     alpaca_credentials(store, cfg.venues.alpaca.credentials),
                     data_feed=cfg.venues.alpaca.data_feed,
                     now_fn=clock.now,
+                    extra_symbols=cfg.tracking.watch_symbols,
                 )
             else:
                 store = None
@@ -138,7 +139,9 @@ def cmd_paper(a: argparse.Namespace) -> int:
                     realtime=True,
                     now_fn=clock.now,
                 )
-            from helm.app.services import build_control_plane
+            from helm.app.services import build_control_plane, make_watchlist
+
+            watchlist = make_watchlist(cfg, bot)
 
             cp = build_control_plane(
                 engine,
@@ -149,6 +152,7 @@ def cmd_paper(a: argparse.Namespace) -> int:
                 log=log,
                 ui_dir=Path(a.ui_dir) if a.ui_dir else None,
                 api=not a.no_api,
+                watchlist=watchlist,
             )
             alerts.sinks.extend(cp.sinks)
             if cp.login_url:
@@ -159,7 +163,13 @@ def cmd_paper(a: argparse.Namespace) -> int:
                 else None
             )
             runner = PaperRunner(
-                engine, feed, config=RunnerConfig(), recorder=recorder, services=cp.services
+                engine,
+                feed,
+                config=RunnerConfig(),
+                recorder=recorder,
+                services=cp.services,
+                on_event=watchlist.update,
+                engine_symbols=frozenset(bot.symbols),
             )
             deadline = time.monotonic() + a.soak_hours * 3600 if a.soak_hours else None
             rss0 = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss

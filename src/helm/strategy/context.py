@@ -36,6 +36,9 @@ class BarHistory:
             return  # duplicate / out-of-order bar: ignore
         dq.append(bar)
 
+    def timeframes(self, symbol: str) -> list[str]:
+        return sorted(tf for sym, tf in self._bars if sym == symbol)
+
     def last(self, symbol: str, timeframe: str, n: int, now: int) -> list[Bar]:
         dq = self._bars.get((symbol, timeframe))
         if not dq or n <= 0:

@@ -54,7 +54,12 @@ def cmd_live(a: argparse.Namespace) -> int:
     from helm.app.gates import build_broker
     from helm.app.lifecycle import build_engine, recover, resync
     from helm.app.paper import PaperRunner, RunnerConfig
-    from helm.app.services import alpaca_credentials, alpaca_feed, build_control_plane
+    from helm.app.services import (
+        alpaca_credentials,
+        alpaca_feed,
+        build_control_plane,
+        make_watchlist,
+    )
     from helm.app.venues import live_factory
     from helm.brokers.live.alpaca import AlpacaBroker
     from helm.core.enums import LifecycleStage, Mode
@@ -145,6 +150,7 @@ def cmd_live(a: argparse.Namespace) -> int:
                     code_fn=lambda: secrets.token_hex(4),
                     alerts=alerts,
                 )
+                watchlist = make_watchlist(cfg, bot)
                 cp = build_control_plane(
                     engine,
                     cfg,
@@ -154,6 +160,7 @@ def cmd_live(a: argparse.Namespace) -> int:
                     log=log,
                     ui_dir=Path(a.ui_dir) if a.ui_dir else None,
                     api=not a.no_api,
+                    watchlist=watchlist,
                 )
                 alerts.sinks.extend(cp.sinks)
                 for w in warnings:
@@ -181,6 +188,7 @@ def cmd_live(a: argparse.Namespace) -> int:
                     alpaca_credentials(store, cfg.venues.alpaca.credentials),
                     data_feed=cfg.venues.alpaca.data_feed,
                     now_fn=clock.now,
+                    extra_symbols=cfg.tracking.watch_symbols,
                 )
                 runner = PaperRunner(
                     engine,
@@ -188,6 +196,8 @@ def cmd_live(a: argparse.Namespace) -> int:
                     config=RunnerConfig(reconcile_every_s=cfg.risk.reconcile_interval_s),
                     broker_events=broker.stream(),
                     services=cp.services,
+                    on_event=watchlist.update,
+                    engine_symbols=frozenset(bot.symbols),
                 )
                 if cp.login_url:
                     print(f"control UI: {cp.login_url}", file=sys.stderr)

@@ -129,4 +129,8 @@ Carried over: M1 24 h live recording (DATA-4) and M3 24 h soak can now run on th
 | BT-4 L1/L2 replay backtester with queue position | ⬜ | |
 | EXE-5 TWAP: per-slice risk, no burst after pause, cancel on stop/flatten/kill | ✅ | `tests/integration/test_twap.py` (decision 0032) |
 | DATA-9 adjusted vs raw kept apart + recorded; survivorship + raw-price warnings on equities tearsheets | ✅ | `tests/unit/test_equities_hygiene.py`; `helm data fetch --symbol alpaca:SPY/USD --asset-class equity --adjusted` |
-| TRK-1/2 watchlists + alert rules; UI-3/4/5 charts, watchlist, research view | ⬜ | |
+| TRK-1 watchlist: last, 24h change, spread %, volume z-score; watch-only symbols never reach the engine | ✅ | `tests/unit/test_tracking.py` (funding rate n/a: no perps on Alpaca) |
+| TRK-2 alert rules (price/change/spread/volume/PnL/drawdown/feed/engine), edge-triggered, throttled | ✅ | `test_each_rule_kind`, `test_rules_are_edge_triggered_and_storms_are_bounded` (1000 flaps ⇒ 1 message) |
+| UI-3 chart: candles, fill markers, resting-order lines | ✅ | `/api/chart`, `tests/integration/test_ui_views.py`; `ui/app/views.tsx` (decision 0033) |
+| UI-4 watchlist: sortable, anomaly highlight | ✅ | snapshot `watchlist`; hand-rolled sortable table (not TanStack, 0033) |
+| UI-5 research: experiments + promotion log | 🟡 | read-only view; compare-runs and promotion controls stay in the CLI (0033) |

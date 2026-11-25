@@ -584,6 +584,10 @@ class Engine:
         return self._sod_equity
 
     @property
+    def high_water_mark(self) -> Decimal:
+        return max(self._hwm, self.portfolio.equity())
+
+    @property
     def daily_pnl(self) -> Decimal:
         return self.portfolio.equity() - self._sod_equity
 

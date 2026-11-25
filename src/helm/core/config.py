@@ -145,6 +145,51 @@ class ControlConfig(_Cfg):
     heartbeat_every_s: float = Field(default=60.0, gt=0)
 
 
+RuleKind = Literal[
+    "price_above",
+    "price_below",
+    "change_pct_abs_above",  # |24h change %| above threshold
+    "spread_pct_above",
+    "volume_z_above",
+    "daily_pnl_below",  # account currency
+    "drawdown_pct_above",
+    "feed_not_live",
+    "engine_not_running",
+]
+
+
+class AlertRuleConfig(_Cfg):
+    """TRK-2 alert rule. Edge-triggered: fires when the condition becomes true,
+    re-arms when it is false again; delivery is deduped/throttled by AlertManager."""
+
+    name: str
+    kind: RuleKind
+    symbol: str | None = None  # required for the price/spread/volume/change kinds
+    threshold: Decimal = Decimal(0)
+    severity: Literal["INFO", "WARN", "CRITICAL"] = "WARN"
+
+    @model_validator(mode="after")
+    def _needs_symbol(self) -> AlertRuleConfig:
+        per_symbol = {
+            "price_above",
+            "price_below",
+            "change_pct_abs_above",
+            "spread_pct_above",
+            "volume_z_above",
+        }
+        if self.kind in per_symbol and not self.symbol:
+            raise ValueError(f"rule {self.name!r} ({self.kind}) needs a symbol")
+        return self
+
+
+class TrackingConfig(_Cfg):
+    """TRK-1 watchlist + TRK-2 rules."""
+
+    watch_symbols: tuple[str, ...] = ()  # extra symbols watched but never traded
+    volume_z_window: int = Field(default=60, ge=5)
+    rules: tuple[AlertRuleConfig, ...] = ()
+
+
 class PromotionConfig(_Cfg):
     min_trades_backtest: int = 30
     min_deflated_sharpe: Decimal = Decimal("0.95")
@@ -161,3 +206,4 @@ class HelmConfig(_Cfg):
     promotion: PromotionConfig = PromotionConfig()
     venues: VenuesConfig = VenuesConfig()
     control: ControlConfig = ControlConfig()
+    tracking: TrackingConfig = TrackingConfig()

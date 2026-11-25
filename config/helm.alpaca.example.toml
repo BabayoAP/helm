@@ -18,6 +18,24 @@ api_host = "127.0.0.1"           # Docker sets 0.0.0.0 inside the container; the
 api_port = 8765
 telegram_enabled = false         # true needs telegram_bot_token + the allowlists in risk.toml
 
+# Watchlist + alert rules (TRK-1/2). Watch-only symbols are streamed but never traded.
+[tracking]
+watch_symbols   = ["alpaca:QQQ/USD", "alpaca:IWM/USD"]
+volume_z_window = 60
+
+[[tracking.rules]]
+name      = "spy-big-move"
+kind      = "change_pct_abs_above"     # also: price_above/below, spread_pct_above, volume_z_above,
+symbol    = "alpaca:SPY/USD"           #       daily_pnl_below, drawdown_pct_above, feed_not_live,
+threshold = 2.0                        #       engine_not_running
+severity  = "WARN"
+
+[[tracking.rules]]
+name      = "day-loss-150"
+kind      = "daily_pnl_below"
+threshold = -150
+severity  = "CRITICAL"
+
 # 1) Helm paper mode: simulated fills on the live Alpaca feed. No orders reach Alpaca.
 [[engine.bots]]
 id         = "sma-spy-paper"

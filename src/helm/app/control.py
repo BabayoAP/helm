@@ -3,18 +3,28 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
 from helm.app.engine import Engine
 from helm.core.control import (
     BotView,
+    ChartBar,
+    ChartMarker,
+    ChartView,
     DecisionView,
     EngineSnapshot,
+    ExperimentView,
+    OrderLine,
     OrderView,
     PositionView,
+    PromotionView,
+    ResearchView,
     RiskUtilization,
 )
 from helm.core.events import ControlCommand
+from helm.core.models import Fill
 from helm.infra.logging import LogRing
+from helm.tracking.watchlist import Watchlist
 
 MAX_CURVE_POINTS = 500
 
@@ -28,10 +38,20 @@ def _downsample(curve: list[tuple[int, Decimal]], n: int) -> tuple[tuple[int, De
 
 
 class EnginePort:
-    def __init__(self, engine: Engine, *, venue: str, ring: LogRing | None = None) -> None:
+    def __init__(
+        self,
+        engine: Engine,
+        *,
+        venue: str,
+        ring: LogRing | None = None,
+        watchlist: Watchlist | None = None,
+        research_db: Path | None = None,
+    ) -> None:
         self.engine = engine
         self.venue = venue
         self.ring = ring
+        self.watchlist = watchlist
+        self.research_db = research_db
 
     def now(self) -> int:
         return self.engine.clock.now()
@@ -83,7 +103,7 @@ class EnginePort:
         )
         gross = sum((abs(pf.exposure(s)) for s in pf.positions), Decimal(0))
         loss_today = max(Decimal(0), -e.daily_pnl)
-        hwm = max(e._hwm, equity)  # pyright: ignore[reportPrivateUsage]
+        hwm = e.high_water_mark
         risk = (
             RiskUtilization(
                 name="gross exposure (x equity)",
@@ -134,6 +154,7 @@ class EnginePort:
             ),
             reconcile_ok=None if rec is None else rec.ok,
             ts=e.clock.now(),
+            watchlist=self.watchlist.rows() if self.watchlist is not None else (),
         )
 
     def logs(self, n: int = 200) -> list[dict[str, object]]:
@@ -141,3 +162,96 @@ class EnginePort:
 
     async def command(self, cmd: ControlCommand) -> str:
         return await self.engine.control(cmd)
+
+    # ------------------------------------------------------------------ UI-3
+    def chart(self, symbol: str, n: int = 500) -> ChartView | None:
+        e = self.engine
+        tfs = e.history.timeframes(symbol)
+        tf = tfs[0] if tfs else "1m"
+        bars = e.history.last(symbol, tf, n, e.clock.now())
+        if not bars and symbol not in e.quotes:
+            return None
+        since = bars[0].ts_open if bars else 0
+        markers: list[ChartMarker] = []
+        for entry in e.journal.entries(kinds=("Fill",), account_id=e.account_id):
+            if entry.ts < since:
+                continue
+            f = entry.decode()
+            if isinstance(f, Fill) and f.symbol == symbol:
+                order = e.om.find(f.client_order_id)
+                markers.append(
+                    ChartMarker(
+                        ts=f.ts,
+                        side=f.side.value,
+                        price=f.price,
+                        qty=f.qty,
+                        tag=order.intent.tag if order is not None else "",
+                    )
+                )
+        lines = tuple(
+            OrderLine(
+                client_order_id=o.client_order_id,
+                side=o.intent.side.value,
+                price=o.intent.limit_price,
+                qty=o.remaining,
+            )
+            for o in e.om.working_orders()
+            if o.intent.symbol == symbol and o.intent.limit_price is not None
+        )
+        return ChartView(
+            symbol=symbol,
+            timeframe=tf,
+            bars=tuple(
+                ChartBar(ts=b.ts_open, o=b.o, h=b.h, l=b.l, c=b.c, v=b.volume) for b in bars
+            ),
+            markers=tuple(markers[-2000:]),
+            order_lines=lines,
+        )
+
+    # ------------------------------------------------------------------ UI-5
+    def research(self, limit: int = 100) -> ResearchView:
+        if self.research_db is None or not self.research_db.exists():
+            return ResearchView(experiments=(), promotions=())
+        from helm.research.experiments.store import ExperimentStore  # noqa: PLC0415
+        from helm.research.promotion import PromotionRegistry  # noqa: PLC0415
+
+        store = ExperimentStore(self.research_db)
+        reg = PromotionRegistry(self.research_db)
+        try:
+            exps = tuple(
+                ExperimentView(
+                    run_id=r.run_id,
+                    ts=r.ts,
+                    kind=r.kind,
+                    strategy=r.strategy,
+                    code_hash=r.code_hash,
+                    params=r.params,
+                    passed=r.passed,
+                    sharpe=r.metrics.get("sharpe", r.metrics.get("best_is_sharpe")),
+                    trades=r.metrics.get("trade_count"),
+                    git_hash=r.git_hash,
+                    failures=tuple(
+                        f"{c['name']}: {c.get('detail', '')}"
+                        for c in r.report.get("checks", [])
+                        if not c.get("passed", True)
+                    ),
+                )
+                for r in store.runs(limit=limit)
+            )
+            promos = tuple(
+                PromotionView(
+                    ts=h["ts"],
+                    strategy=h["strategy"],
+                    code_hash=h["code_hash"],
+                    params_hash=h["params_hash"],
+                    from_stage=h["from_stage"],
+                    to_stage=h["to_stage"],
+                    approved_by=h["approved_by"],
+                    note=h["note"],
+                )
+                for h in reg.history()
+            )
+        finally:
+            store.close()
+            reg.close()
+        return ResearchView(experiments=exps, promotions=promos)

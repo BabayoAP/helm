@@ -87,3 +87,5 @@ td.n, th.n { text-align: right; }
 .banner { grid-column: span 12; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--down); background: #f8514922; }
 .login { max-width: 520px; margin: 15vh auto; padding: 24px; }
 .login code { font-family: var(--mono); background: var(--bg); padding: 2px 4px; border-radius: 4px; }
+.anomaly { color: var(--warn); font-weight: 700; }
+select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }

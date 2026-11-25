@@ -114,6 +114,17 @@ def create_app(
     def snapshot() -> Response:
         return Response(port.snapshot().model_dump_json(), media_type="application/json")
 
+    @app.get("/api/chart", dependencies=[Depends(auth)])
+    def chart(symbol: str, n: Annotated[int, Query(ge=10, le=5000)] = 500) -> Response:
+        view = port.chart(symbol, n)
+        if view is None:
+            raise HTTPException(status_code=404, detail="no data for symbol")
+        return Response(view.model_dump_json(), media_type="application/json")
+
+    @app.get("/api/research", dependencies=[Depends(auth)])
+    def research(limit: Annotated[int, Query(ge=1, le=1000)] = 100) -> Response:
+        return Response(port.research(limit).model_dump_json(), media_type="application/json")
+
     @app.get("/api/logs", dependencies=[Depends(auth)])
     def logs(n: Annotated[int, Query(ge=1, le=2000)] = 200) -> list[dict[str, object]]:
         return port.logs(n)

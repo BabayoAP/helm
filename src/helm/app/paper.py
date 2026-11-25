@@ -52,6 +52,7 @@ class PaperRunner:
         recorder: Recorder | None = None,
         on_event: Callable[[BaseModel], None] | None = None,
         broker_events: AsyncIterator[OrderEvent | Fill] | None = None,
+        engine_symbols: frozenset[str] | None = None,
         services: Sequence[Callable[[asyncio.Event], Coroutine[Any, Any, None]]] = (),
     ) -> None:
         self.engine = engine
@@ -60,6 +61,7 @@ class PaperRunner:
         self.recorder = recorder
         self.on_event = on_event
         self.broker_events = broker_events
+        self.engine_symbols = engine_symbols  # watch-only symbols never reach the engine
         self.services = list(services)
         self.events = 0
         self.broker_event_count = 0
@@ -89,7 +91,9 @@ class PaperRunner:
         async for ev in self.feed:
             if self.recorder is not None:
                 self.recorder.record(ev)
-            await dispatch(self.engine, ev)
+            sym = getattr(ev, "symbol", None)
+            if self.engine_symbols is None or sym is None or sym in self.engine_symbols:
+                await dispatch(self.engine, ev)
             self.events += 1
             if self.on_event is not None:
                 self.on_event(ev)
