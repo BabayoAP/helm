@@ -8,10 +8,15 @@ from helm.core.enums import Side
 from helm.core.models import Bar, OrderIntent
 from helm.strategy.api import BaseStrategy, Context
 from helm.strategy.examples.common import market, sma
+from helm.strategy.params import IntRange, ParamSpace
 
 
 class SmaCross(BaseStrategy):
     id = "sma_cross"
+    param_space = ParamSpace(
+        dims={"fast": IntRange(5, 30, 5), "slow": IntRange(20, 120, 20)},
+        constraint=lambda p: int(p["fast"]) < int(p["slow"]),
+    )
 
     def on_bar(self, bar: Bar, ctx: Context) -> list[OrderIntent]:
         fast = int(ctx.params.get("fast", 10))

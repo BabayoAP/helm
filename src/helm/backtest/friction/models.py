@@ -71,6 +71,55 @@ class FrictionConfig:
     def scaled(self, k: Decimal) -> FrictionConfig:
         return FrictionConfig(**{**self.__dict__, "scale": k})
 
+    def to_dict(self) -> dict[str, object]:
+        """JSON-safe and lossless (Decimals as strings) so runs can be reproduced (RES-2)."""
+        return {
+            "fees": self.fees,
+            "spread": self.spread,
+            "impact": self.impact,
+            "funding": self.funding,
+            "latency": self.latency,
+            "scale": str(self.scale),
+            "fee_tiers": [
+                [str(t.min_30d_volume), str(t.maker_bps), str(t.taker_bps)]
+                for t in self.fee_schedule.tiers
+            ],
+            "fixed_slippage_bps": str(self.fixed_slippage_bps),
+            "half_spread_bps": str(self.half_spread_bps),
+            "impact_k": str(self.impact_k),
+            "vol_window": self.vol_window,
+            "adv_window_days": self.adv_window_days,
+            "funding_rate_8h": str(self.funding_rate_8h),
+            "latency_ms": list(self.latency_ms),
+            "seed": self.seed,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, object]) -> FrictionConfig:
+        tiers = d["fee_tiers"]
+        assert isinstance(tiers, list)
+        lat = d["latency_ms"]
+        assert isinstance(lat, list)
+        return cls(
+            fees=bool(d["fees"]),
+            spread=bool(d["spread"]),
+            impact=bool(d["impact"]),
+            funding=bool(d["funding"]),
+            latency=bool(d["latency"]),
+            scale=Decimal(str(d["scale"])),
+            fee_schedule=FeeSchedule(
+                tuple(FeeTier(Decimal(a), Decimal(b), Decimal(c)) for a, b, c in tiers)  # pyright: ignore[reportUnknownVariableType,reportUnknownArgumentType]
+            ),
+            fixed_slippage_bps=Decimal(str(d["fixed_slippage_bps"])),
+            half_spread_bps=Decimal(str(d["half_spread_bps"])),
+            impact_k=Decimal(str(d["impact_k"])),
+            vol_window=int(str(d["vol_window"])),
+            adv_window_days=int(str(d["adv_window_days"])),
+            funding_rate_8h=Decimal(str(d["funding_rate_8h"])),
+            latency_ms=(float(lat[0]), float(lat[1])),  # pyright: ignore[reportUnknownArgumentType]
+            seed=int(str(d["seed"])),
+        )
+
 
 class ImpactModel:
     """slip(Q) = k * sigma * sqrt(Q / ADV) (BT-5), sigma = trailing daily vol.

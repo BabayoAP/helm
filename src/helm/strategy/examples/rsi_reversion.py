@@ -8,10 +8,18 @@ from helm.core.enums import Side
 from helm.core.models import Bar, OrderIntent
 from helm.strategy.api import BaseStrategy, Context
 from helm.strategy.examples.common import market, rsi
+from helm.strategy.params import IntRange, ParamSpace
 
 
 class RsiReversion(BaseStrategy):
     id = "rsi_reversion"
+    param_space = ParamSpace(
+        dims={
+            "period": IntRange(7, 21, 7),
+            "entry": IntRange(20, 35, 5),
+            "exit": IntRange(50, 70, 10),
+        }
+    )
 
     def on_bar(self, bar: Bar, ctx: Context) -> list[OrderIntent]:
         n = int(ctx.params.get("period", 14))

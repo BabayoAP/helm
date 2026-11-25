@@ -33,6 +33,8 @@ Build status per requirement: docs/STATUS.md. Decisions: docs/decisions/.
 - Alpaca tests use `tests/alpaca_fake.py` (httpx.MockTransport). It asserts the paper host; never point a test at `api.alpaca.markets`.
 - Control plane: `helm.api` / `helm.telegram` depend only on `helm.core.control.ControlPort` (0026); `helm.app.control.EnginePort` implements it. Commands always go through `Engine.control` (journaled).
 - Long-running extras (API, Telegram, heartbeat, daily summary) are `services` passed to the runner (`helm.app.services`). The one-time resume code goes to Telegram + console stderr, never the structured log.
+- Research (Phase 2): `helm.research.validation.suite` takes an injected evaluator (0031); `helm.app.research` supplies the event-driven one, DataSource/RunSettings (serialisable for reruns) and journal account stats. Experiments + promotions live in `data/research.sqlite` (append-only).
+- Strategies declare `param_space` (`helm.strategy.params`). A strategy version = (path, code hash of its package dir, params hash); any change => DRAFT (0030). Real money reads gate (c) from the promotion registry.
 - UI: `ui/` Next.js static export (`make ui`), served by the API at `/` (0027). Backups: `helm backup|restore` with `age` (0028).
 
 ## Running things
@@ -41,6 +43,7 @@ Build status per requirement: docs/STATUS.md. Decisions: docs/decisions/.
 - `uv run helm paper --soak-hours 1` (synthetic feed) or `--feed alpaca` (needs Alpaca data keys)
 - `HELM_LIVE_TRADING=1 uv run helm live` (Alpaca; paper environment by default; all EXE-1 gates required)
 - `uv run helm backup --recipient age1...` / `uv run helm restore <archive> --identity <key> --to <empty dir>`
+- `uv run helm research validate --synthetic 3000 --timeframe 1h --param qty=1 [--holdout]` · `helm research runs|rerun <id>` · `helm promote status|request --to X [--approve-as NAME]|demote|history`
 - Docs for operators: `docs/RUNBOOK.md`, `docs/GO_LIVE_CHECKLIST.md`
 
 ## Workflow

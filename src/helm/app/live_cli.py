@@ -16,6 +16,7 @@ import json
 import os
 import secrets
 import sys
+from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
 
@@ -37,6 +38,18 @@ def _starting_equity(acct_dir: Path, venue_equity: Decimal) -> Decimal:
     return venue_equity
 
 
+def _registry_stage(strategy: str, params: Mapping[str, object], db: Path):  # type: ignore[no-untyped-def]
+    from helm.research.experiments.store import code_hash, params_hash
+    from helm.research.promotion import PromotionRegistry, Version
+    from helm.strategy.loader import load_strategy
+
+    reg = PromotionRegistry(db)
+    try:
+        return reg.stage(Version(strategy, code_hash(load_strategy(strategy)), params_hash(params)))
+    finally:
+        reg.close()
+
+
 def cmd_live(a: argparse.Namespace) -> int:
     from helm.app.gates import build_broker
     from helm.app.lifecycle import build_engine, recover, resync
@@ -44,7 +57,7 @@ def cmd_live(a: argparse.Namespace) -> int:
     from helm.app.services import alpaca_credentials, alpaca_feed, build_control_plane
     from helm.app.venues import live_factory
     from helm.brokers.live.alpaca import AlpacaBroker
-    from helm.core.enums import Mode
+    from helm.core.enums import LifecycleStage, Mode
     from helm.core.errors import HelmError
     from helm.data.connectors.alpaca_common import instrument_for
     from helm.data.instruments import InstrumentRegistry
@@ -78,9 +91,21 @@ def cmd_live(a: argparse.Namespace) -> int:
     acct_dir = data_dir / "accounts" / bot.account_id
 
     async def run() -> int:
+        stage = _registry_stage(bot.strategy, bot.params, data_dir / "research.sqlite")
+        real_money = env_name == "live"
+        if not real_money and not stage.at_least(LifecycleStage.LIVE_SMALL):
+            log.warning(
+                "promotion_registry_below_live_small",
+                stage=stage.value,
+                note="allowed on the Alpaca paper account only; real money requires it",
+            )
         try:
             broker = build_broker(
-                bot, env=os.environ, clock=clock, live_factory=live_factory(cfg, store, clock)
+                bot,
+                env=os.environ,
+                clock=clock,
+                live_factory=live_factory(cfg, store, clock),
+                registry_stage=stage if real_money else None,
             )
         except HelmError as exc:
             log.error("live_refused", error=str(exc))

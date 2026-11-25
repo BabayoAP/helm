@@ -8,6 +8,7 @@ dependencies = [
     "duckdb>=2.0.1",
     "fastapi>=0.165.0",
     "httpx>=0.28.1",
+    "optuna>=5.1.0",
     "polars>=2.2.0",
     "pydantic>=2.14.4",
     "structlog>=26.1.0",

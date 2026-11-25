@@ -3,7 +3,8 @@
 Live broker construction requires ALL of:
   (a) env HELM_LIVE_TRADING=1
   (b) bot config mode = "live"
-  (c) strategy lifecycle >= LIVE_SMALL
+  (c) strategy lifecycle >= LIVE_SMALL (for real money: as recorded in the
+      promotion registry for this exact code + params, decision 0030)
 Any missing gate => LiveGateError naming the gate(s). Paper and backtest bots
 always get a SimBroker, whatever the environment says.
 """
@@ -26,7 +27,9 @@ GATE_TOKEN = object()  # only this module can hand it to LiveBrokerBase
 LiveFactory = Callable[[BotConfig, object], Broker]
 
 
-def missing_live_gates(bot: BotConfig, env: Mapping[str, str]) -> list[str]:
+def missing_live_gates(
+    bot: BotConfig, env: Mapping[str, str], *, registry_stage: LifecycleStage | None = None
+) -> list[str]:
     missing: list[str] = []
     if env.get(LIVE_ENV) != "1":
         missing.append(f"gate (a): environment {LIVE_ENV}=1 is not set")
@@ -35,6 +38,11 @@ def missing_live_gates(bot: BotConfig, env: Mapping[str, str]) -> list[str]:
     if not bot.lifecycle.at_least(LifecycleStage.LIVE_SMALL):
         missing.append(
             f"gate (c): strategy lifecycle is {bot.lifecycle.value}, needs >= LIVE_SMALL"
+        )
+    elif registry_stage is not None and not registry_stage.at_least(LifecycleStage.LIVE_SMALL):
+        missing.append(
+            f"gate (c): promotion registry has this code+params at {registry_stage.value}, "
+            "needs >= LIVE_SMALL (helm promote; decision 0030)"
         )
     return missing
 
@@ -45,11 +53,12 @@ def build_broker(
     env: Mapping[str, str],
     clock: Clock,
     live_factory: LiveFactory | None = None,
+    registry_stage: LifecycleStage | None = None,
     **sim_kwargs: Any,
 ) -> Broker:
     if bot.mode is not Mode.LIVE:
         return SimBroker(account_id=bot.account_id, venue=bot.venue, clock=clock, **sim_kwargs)
-    missing = missing_live_gates(bot, env)
+    missing = missing_live_gates(bot, env, registry_stage=registry_stage)
     if missing:
         raise LiveGateError("live broker refused: " + "; ".join(missing))
     if live_factory is None:

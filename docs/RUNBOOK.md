@@ -74,6 +74,17 @@ docker compose logs -f engine                       # login URL + resume codes a
 
 The default compose command is **Helm paper** mode. Switching to `helm live` is a deliberate edit, see [GO_LIVE_CHECKLIST.md](GO_LIVE_CHECKLIST.md).
 
+## 4b. Is the strategy any good? (research + promotion)
+
+```bash
+uv run helm backtest --symbol alpaca:SPY/USD --asset-class equity --timeframe 1h --param qty=1   # recorded
+uv run helm research validate --symbol alpaca:SPY/USD --asset-class equity --timeframe 1h --param qty=1
+uv run helm research validate ... --holdout --holdout-reason "final check"   # ONCE per code version
+uv run helm promote request --to BACKTESTED --param fast=.. --param slow=.. --param qty=1 --approve-as <you>
+```
+
+The validator re-optimizes on every walk-forward and cross-validation window, counts every parameter set ever tried, and deflates the Sharpe ratio for it. "REJECTED" is the normal, useful outcome for most ideas. Any code or parameter change starts the strategy over at DRAFT.
+
 ## 5. Stopping things
 
 | Need | UI | Telegram | Effect |

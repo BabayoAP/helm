@@ -29,64 +29,54 @@ def _ts(s: str) -> int:
 
 
 def _instrument(symbol: str, tick: str, lot: str, min_notional: str):  # type: ignore[no-untyped-def]
-    from helm.core.enums import AssetClass
-    from helm.core.models import Instrument, parse_symbol
+    from helm.app.research import instrument_for_symbol
 
-    venue = parse_symbol(symbol)[0]
-    return Instrument(
-        venue=venue,
-        symbol=symbol,
-        asset_class=AssetClass.CRYPTO,
-        tick_size=Decimal(tick),
-        lot_size=Decimal(lot),
-        min_notional=Decimal(min_notional),
-        quote_ccy=parse_symbol(symbol)[2],
-    )
+    return instrument_for_symbol(symbol, tick=tick, lot=lot, min_notional=min_notional)
 
 
 def cmd_backtest(a: argparse.Namespace) -> int:
-    from helm.app.backtest import BacktestSpec, run_backtest, write_report
+    from helm.app.backtest import run_backtest, write_report
+    from helm.app.research import DataSource, RunSettings, record_backtest
     from helm.backtest.friction.models import FrictionConfig
-    from helm.core.enums import AssetClass
-    from helm.data.parquet_store import ParquetStore, SeriesKey
-    from helm.data.synthetic import frame_to_bars, gbm_frame
     from helm.infra.config import load_config
-    from helm.strategy.loader import load_strategy
+    from helm.research.experiments.store import ExperimentStore
 
-    inst = _instrument(a.symbol, a.tick, a.lot, a.min_notional)
-    if a.synthetic:
-        bars = list(
-            frame_to_bars(
-                gbm_frame(a.synthetic, start_ns=_ts(a.start), timeframe=a.timeframe, seed=a.seed),
-                a.symbol,
-                a.timeframe,
-            )
-        )
-    else:
-        key = SeriesKey(AssetClass(a.asset_class), a.symbol, "bars", a.timeframe)
-        bars = list(
-            ParquetStore(a.data_dir).iter_bars(key, _ts(a.start), _ts(a.end) if a.end else None)
-        )
+    source = DataSource(
+        symbol=a.symbol,
+        timeframe=a.timeframe,
+        synthetic=a.synthetic,
+        seed=a.seed,
+        start=a.start,
+        end=a.end,
+        asset_class=a.asset_class,
+        data_dir=a.data_dir,
+    )
+    bars = source.load()
     if not bars:
         print("no bars in range: run `helm data import|fetch` first, or use --synthetic N")
         return 2
-    spec = BacktestSpec(
-        strategy=load_strategy(a.strategy),
-        instruments=[inst],
-        params=_params(a.param),
+    settings = RunSettings(
+        strategy=a.strategy,
+        instrument=_instrument(a.symbol, a.tick, a.lot, a.min_notional),
         starting_equity=Decimal(a.equity),
         friction=FrictionConfig() if not a.no_friction else FrictionConfig.off(),
         seed=a.seed,
     )
     if a.risk:
-        spec.risk = load_config(risk_path=a.risk).risk
+        settings.risk = load_config(risk_path=a.risk).risk
+    spec = settings.spec(_params(a.param))
     res = run_backtest(spec, bars)
     out = Path(a.out) / f"{spec.strategy.id}-{res.run_id}"
     path = write_report(res, spec, out, title=f"{spec.strategy.id} · {a.symbol} · {a.timeframe}")
+    if not a.no_record:  # RES-2: every run is recorded and can be rerun
+        store = ExperimentStore(a.db)
+        record_backtest(store, settings, source, spec, res)
+        store.close()
     print(
         json.dumps(
             {
                 "tearsheet": str(path),
+                "run_id": res.run_id,
                 "result_hash": res.result_hash,
                 **{k: v for k, v in res.metrics.to_dict().items() if k != "monte_carlo"},
             },
@@ -138,6 +128,8 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     )
     bt.add_argument("--data-dir", default="data")
     bt.add_argument("--out", default="reports")
+    bt.add_argument("--db", default="data/research.sqlite", help="experiment log (RES-2)")
+    bt.add_argument("--no-record", action="store_true")
     bt.set_defaults(handler=cmd_backtest)
 
     sw = sub.add_parser("sweep", help="vectorized SMA-cross screening sweep (BT-1)")

@@ -1,0 +1,11 @@
+# 0030 — Promotion registry backs live gate (c)
+- **Context:** EXE-1 gate (c) needs lifecycle ≥ LIVE_SMALL. Until now that came from the bot config, which anyone can edit. PRD §13 says every transition is a journaled manual approval, and that any code or parameter change resets the stage.
+- **Decision:**
+  - `helm.research.promotion.PromotionRegistry` is an append-only table in `data/research.sqlite`. It is keyed by strategy version = (strategy path, code hash, params hash).
+  - Promotions move one stage at a time, only through a passing gate, and only with a named approver (`helm promote request --to X --approve-as NAME`). Demotion is always allowed.
+  - A new code hash or params hash is a new version that starts at DRAFT. This is the conservative reading of "DRAFT/BACKTESTED as appropriate".
+  - Code hash covers every `.py` file in the strategy's package directory, so editing a shared helper also resets.
+  - For **real money** (`environment = "live"`), `helm live` passes the registry stage into gate (c). A config claiming LIVE_SMALL is not enough. For the **Alpaca paper account**, a lower registry stage only logs a warning, so M4 drills can run before a strategy is proven.
+- **Consequence:**
+  - Gates that need data Helm doesn't produce yet are explicit `--confirm-*` flags, recorded in the approval: paper/backtest parity on a recorded live feed, the risk-rejection review, and the PAP-4 divergence report.
+  - Paper and live-small evidence (days, round trips, halts) is read from the account journal.

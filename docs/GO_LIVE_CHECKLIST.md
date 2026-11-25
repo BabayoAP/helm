@@ -6,6 +6,8 @@ PRD §15 M4 exit: the MVP is done when this is completed and the first real-mone
 - [ ] Backtest over realistic friction, with enough trades to mean something (`promotion.min_trades_backtest`). Treat the result as a way to rule ideas out, not to prove them.
 - [ ] Helm paper on the live Alpaca feed for at least `promotion.min_paper_days` (default 14) and `min_paper_trades`.
 - [ ] Paper PnL is within your expectations from the backtest; differences are understood.
+- [ ] `helm research validate ... --holdout` PASSED for the exact params you will trade (overfitting checks: DSR, walk-forward, purged CV, plateau, holdout).
+- [ ] Promoted step by step with `helm promote request --to <STAGE> --approve-as <you>` up to `LIVE_SMALL`. `helm live` refuses real money unless the registry says so for this exact code + params.
 - [ ] Bot lifecycle set to `LIVE_SMALL` (not `LIVE`) in `helm.toml`.
 
 ## B. Soaks and drills

@@ -113,3 +113,20 @@ Venue decision (BLOCKING, PRD §17 #1): **Alpaca**, chosen by the owner 2026-11-
 **Exit criteria (MVP):** 7-day paper soak on live feed ⏳ · testnet (Alpaca paper) run with kill/flatten drills ⏳ · go-live checklist ⏳ · first real-money run at `LIVE_SMALL` caps ⏳ (all need the owner's keys/time; code and tests are done)
 
 Carried over: M1 24 h live recording (DATA-4) and M3 24 h soak can now run on the Alpaca feed (`helm paper --feed alpaca --record --soak-hours 24`).
+
+## Phase 2 — V1.5 🟡 (in progress)
+
+| ID | Status | Proof |
+|---|---|---|
+| RES-2 experiment tracking: git/code/data/spec hash, params, seed, trials, metrics; append-only | ✅ | `tests/unit/test_validation_suite.py::test_experiment_store_is_append_only_and_counts_trials` |
+| RES-2 rerun from a record reproduces the result hash | ✅ | `test_backtest_is_recorded_and_rerun_reproduces` (`helm research rerun`) |
+| RES-3 optimization: grid + Optuna TPE over declared `param_space`; every trial counted | ✅ | `test_optuna_optimizer_is_seeded_and_respects_constraints` (decision 0029) |
+| RES-4 purged K-fold + embargo, walk-forward, locked holdout (logged, once per code version), plateau, min trades, DSR/PSR | ✅ | `test_splits_are_disjoint_ordered_and_purged`, `test_validate_cli_records_and_refuses_second_holdout_look` |
+| RES-4 regression: deliberately overfit strategy is rejected (and a genuine edge passes) | ✅ | `test_overfit_strategy_is_rejected` (fails DSR 0.80, plateau −2%, WF efficiency 35%), `test_genuine_edge_passes_and_holdout_is_logged_once` |
+| §13 promotion lifecycle: gates, one step, named manual approval, journaled, reset on code/param change | ✅ | `test_gates_and_registry_walk_the_lifecycle`, `test_promote_cli_status_request_and_history` |
+| EXE-1 (c) for real money read from the promotion registry | ✅ | `test_real_money_needs_the_registry_not_just_the_config` (decision 0030) |
+| §13 parity on recorded feed / PAP-4 divergence as automated evidence | 🟡 | manual `--confirm-*` flags recorded in the approval for now |
+| BT-4 L1/L2 replay backtester with queue position | ⬜ | |
+| EXE-5 TWAP | ⬜ | |
+| DATA-9 equities hygiene (adjusted vs raw, survivorship warning) | ⬜ | |
+| TRK-1/2 watchlists + alert rules; UI-3/4/5 charts, watchlist, research view | ⬜ | |

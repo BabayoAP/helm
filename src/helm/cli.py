@@ -42,9 +42,10 @@ def _extensions() -> list[Callable[[argparse._SubParsersAction[argparse.Argument
     from helm.app.cli import register as app_cli
     from helm.app.live_cli import register as live_cli
     from helm.app.paper_cli import register as paper_cli
+    from helm.app.research_cli import register as research_cli
     from helm.data.cli import register as data_cli
 
-    return [data_cli, app_cli, paper_cli, live_cli, backup_cli]
+    return [data_cli, app_cli, paper_cli, live_cli, backup_cli, research_cli]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
