@@ -1,0 +1,4 @@
+# 0020 — Startup recovery never resubmits stale intents
+- **Context:** EXE-3 / kill -9 metric: no duplicates, no orphans. After a crash an order may be NEW/PENDING_SUBMIT/UNKNOWN in the journal.
+- **Decision:** on restart each non-terminal order is looked up by client_order_id. Known to the venue: fetch its fills (`Broker.fills_for_order`, added to the protocol), apply deduped, adopt its state. Unknown to the venue and pre-ack: mark REJECTED ("stale intent not resubmitted"); the strategy re-decides on fresh data. While running (not after a restart) an absent UNKNOWN order is resubmitted with the same id, since the venue dedupes by id.
+- **Consequence:** startup compares positions/open orders with zero tolerance; anything unexplained refuses to start unless `--adopt` (journaled `PositionSnapshot`) or `--flatten-first`.

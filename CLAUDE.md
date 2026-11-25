@@ -24,6 +24,16 @@ Build status per requirement: docs/STATUS.md. Decisions: docs/decisions/.
 - Live broker adapters live under `helm.brokers.live` (one package the contracts can forbid).
 - Config *models* are in `helm.core.config`; TOML loading is in `helm.infra.config`.
 - The journal (`helm.oms.journal`) is SQLite WAL + JSONL mirror; UPDATE/DELETE are blocked by triggers.
+- Accounting (`helm.oms.accounting.Portfolio`) tracks cost basis; shared by backtest, paper, live.
+- One engine loop: `helm.app.engine.Engine`. Backtest = `helm.app.backtest`, paper = `helm.app.paper`, recovery = `helm.app.lifecycle`.
+- Live brokers are only built by `helm.app.gates.build_broker` (EXE-1 triple gate + private token). Paper accounts are `paper-*`.
+- Fills (deduped by venue+trade_id) drive order fill state; order events never double count.
+- Chaos tests: `tests/chaos/` (WS drops, kill -9 via `fake_exchange_rpc`). Parity: `tests/replay/test_parity.py`.
+
+## Running things
+- `uv run helm backtest --synthetic 20000` (or `--symbol venue:BASE/QUOTE` after `helm data import|fetch`)
+- `uv run helm sweep --synthetic 525600` (screening only)
+- `uv run helm paper --soak-hours 1` (synthetic feed until the M4 venue exists)
 
 ## Workflow
 Milestones in PRD §15, in order. Tests first for risk, OMS state machine, accounting, fill models.

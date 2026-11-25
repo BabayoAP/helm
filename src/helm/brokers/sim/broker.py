@@ -75,6 +75,7 @@ class SimBroker:
         self.funding_events: list[tuple[str, Decimal]] = []
         self.submits: dict[str, int] = {}
         self._rested: set[str] = set()
+        self._fills: dict[str, list[Fill]] = {}
 
     # ---------------------------------------------------------------- events
     def _event(self, order: Order, kind: OrderEventKind, reason: str = "") -> None:
@@ -141,6 +142,7 @@ class SimBroker:
             ts=self.clock.now(),
         )
         self.ledger.apply_fill(fill)
+        self._fills.setdefault(fill.client_order_id, []).append(fill)
         self.friction.volume_30d += price * qty * mult
         cur = self._orders[order.client_order_id]
         filled = cur.filled_qty + qty
@@ -305,6 +307,9 @@ class SimBroker:
 
     async def open_orders(self) -> list[Order]:
         return list(self._working.values())
+
+    async def fills_for_order(self, client_order_id: str) -> list[Fill]:
+        return list(self._fills.get(client_order_id, []))
 
     async def positions(self) -> list[Position]:
         return list(self.ledger.snapshot())

@@ -30,6 +30,7 @@ class FakeVenue:
         self.bids: dict[Decimal, Decimal] = {Decimal(99): Decimal(1)}
         self.asks: dict[Decimal, Decimal] = {Decimal(101): Decimal(1)}
         self.drops = 0
+        self.finished = False  # set once enough drops happened: socket then stays up quietly
 
     def truth(self, i: int) -> Bar:
         return bar(i, 10, 11, 9, 10 + (i % 5) / 10)
@@ -80,9 +81,9 @@ class FakeTransport:
 
     async def recv(self) -> str:
         await asyncio.sleep(0)
-        if self.left <= 0 or self.v.cursor >= N_BARS:
-            if self.v.cursor >= N_BARS:
-                await asyncio.sleep(3600)
+        if self.v.finished:
+            await asyncio.sleep(3600)
+        if self.left <= 0:
             self.v.drops += 1
             # while disconnected the venue keeps producing bars + book updates we never see
             for _ in range(self.v.rng.randint(0, 3)):
@@ -169,11 +170,13 @@ def test_ws_survives_100_drops_without_dupes_or_gaps() -> None:
         task = asyncio.create_task(mgr.run())
         while venue.drops < 100 or venue.cursor < N_BARS:
             await asyncio.sleep(0.001)
-            if venue.drops >= 100 and venue.cursor < N_BARS:
-                venue.cursor = N_BARS  # finish: final resync fills to the end
-        # one more reconnect so the final gap-fill runs
-        while mgr.last_bar.get((SYM, "1m"), -1) < (N_BARS - 1) * MIN:
+        venue.finished = True
+        # the venue stops changing; the next (re)connect's gap-fill must deliver every bar
+        final = venue.cursor
+        while mgr.last_bar.get((SYM, "1m"), -1) < (final - 1) * MIN:
             await asyncio.sleep(0.001)
+            if mgr.state is not FeedState.LIVE and venue.cursor != final:
+                final = venue.cursor
         mgr.stop()
         task.cancel()
         bars = [e for e in got if isinstance(e, Bar)]

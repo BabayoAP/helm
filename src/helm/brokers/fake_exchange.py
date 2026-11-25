@@ -70,6 +70,8 @@ class FakeExchange:
         self.submit_calls: dict[str, int] = {}
         self.accepted_submits: dict[str, int] = {}
         self.rate_limited_count = 0
+        self._fills: dict[str, list[Fill]] = {}
+        self.event_log: list[OrderEvent | Fill] = []
 
     # ------------------------------------------------------------------ helpers
     def set_price(self, symbol: str, bid: Decimal, ask: Decimal) -> None:
@@ -99,6 +101,9 @@ class FakeExchange:
                 self._req_times.append(now)
 
     def _emit(self, ev: OrderEvent | Fill) -> None:
+        self.event_log.append(ev)
+        if isinstance(ev, Fill):
+            self._fills.setdefault(ev.client_order_id, []).append(ev)
         self._events.put_nowait(ev)
         if self.config.duplicate_events and self._rng.random() < 0.5:
             self._events.put_nowait(ev)
@@ -251,6 +256,10 @@ class FakeExchange:
     async def get_order(self, client_order_id: str) -> Order | None:
         await self._io()
         return self._orders.get(client_order_id)
+
+    async def fills_for_order(self, client_order_id: str) -> list[Fill]:
+        await self._io()
+        return list(self._fills.get(client_order_id, []))
 
     async def open_orders(self) -> list[Order]:
         await self._io()
