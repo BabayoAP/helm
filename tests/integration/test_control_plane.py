@@ -20,6 +20,7 @@ from helm.app.engine import Engine
 from helm.app.lifecycle import build_engine
 from helm.app.services import (
     build_control_plane,
+    console_resume_code_sink,
     daily_summary_service,
     heartbeat_service,
 )
@@ -347,6 +348,22 @@ def test_daily_summary_fires_once_per_day(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+def test_resume_code_goes_to_console_not_to_the_log(tmp_path: Path) -> None:
+    import io
+
+    async def run() -> None:
+        eng = paper_engine(tmp_path)
+        out = io.StringIO()
+        eng.alerts.sinks.append(console_resume_code_sink(lambda: eng.last_resume_code, out))
+        ring = LogRing()
+        eng.alerts.info("noise", "not a halt")
+        await eng.halt("drill")
+        assert out.getvalue() == "HALTED. Resume code: c0de\n"
+        assert not any("c0de" in json.dumps(r) for r in ring.records)
+
+    asyncio.run(run())
+
+
 def test_control_plane_wiring(tmp_path: Path) -> None:
     eng = paper_engine(tmp_path)
 
@@ -363,7 +380,7 @@ def test_control_plane_wiring(tmp_path: Path) -> None:
     )
     cp = build_control_plane(eng, cfg, Store(), venue="fake", ring=None, log=Log())
     assert cp.login_url is not None and cp.login_url.startswith("http://127.0.0.1:8765/#token=")
-    assert len(cp.services) == 3 and len(cp.sinks) == 1  # api, telegram, daily summary
+    assert len(cp.services) == 3 and len(cp.sinks) == 2  # api, telegram, daily summary
     with pytest.raises(RuntimeError, match="secrets"):
         build_control_plane(eng, cfg, None, venue="fake", ring=None, log=None)
     bare = build_control_plane(

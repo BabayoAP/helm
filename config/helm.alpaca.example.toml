@@ -1,0 +1,44 @@
+# Alpaca (decision 0023). Copy to config/helm.toml (gitignored) and adjust.
+# Secrets never go here (SEC-2). They come from the secrets store:
+#   <credentials>_key_id, <credentials>_secret_key, telegram_bot_token
+# See docs/RUNBOOK.md "Secrets".
+[engine]
+data_dir        = "data"
+log_level       = "INFO"
+starting_equity = 10000          # paper mode only; live uses the venue equity at first start
+# heartbeat_url = "https://hc-ping.com/<uuid>"   # OPS-3 dead-man's switch
+
+[venues.alpaca]
+environment = "paper"            # "paper" = Alpaca paper account. "live" = REAL MONEY.
+data_feed   = "iex"              # free feed (one venue). "sip" needs a paid data plan.
+credentials = "alpaca_paper"     # secret names: alpaca_paper_key_id / alpaca_paper_secret_key
+
+[control]
+api_host = "127.0.0.1"           # Docker sets 0.0.0.0 inside the container; the host port stays 127.0.0.1
+api_port = 8765
+telegram_enabled = false         # true needs telegram_bot_token + the allowlists in risk.toml
+
+# 1) Helm paper mode: simulated fills on the live Alpaca feed. No orders reach Alpaca.
+[[engine.bots]]
+id         = "sma-spy-paper"
+strategy   = "helm.strategy.examples.sma_cross:SmaCross"
+mode       = "paper"
+account_id = "paper-alpaca"
+venue      = "alpaca"
+symbols    = ["alpaca:SPY/USD"]
+timeframe  = "1m"
+lifecycle  = "PAPER"
+params     = { fast = 10, slow = 30, qty = 1 }
+
+# 2) Alpaca paper account ("testnet"): real API, fake money. Needs ALL of:
+#    HELM_LIVE_TRADING=1, mode = "live", lifecycle >= LIVE_SMALL (EXE-1).
+# [[engine.bots]]
+# id         = "sma-spy-alpaca-paper"
+# strategy   = "helm.strategy.examples.sma_cross:SmaCross"
+# mode       = "live"
+# account_id = "alpaca-paper"
+# venue      = "alpaca"
+# symbols    = ["alpaca:SPY/USD"]
+# timeframe  = "1m"
+# lifecycle  = "LIVE_SMALL"
+# params     = { fast = 10, slow = 30, qty = 1 }

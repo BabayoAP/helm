@@ -41,3 +41,7 @@ ui/out/
 .idea/
 .vscode/
 reports/
+config/helm.toml
+config/risk.toml
+config/promotion.toml
+backups/

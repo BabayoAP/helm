@@ -1,4 +1,4 @@
-.PHONY: check lint fmt typecheck imports test cov secrets bench soak up down backtest help
+.PHONY: check lint fmt typecheck imports test cov secrets bench soak up down backtest ui help
 
 UV ?= uv
 RUN = $(UV) run
@@ -10,7 +10,8 @@ help:
 	@echo "make cov       pytest with branch coverage; risk/ must be 100%"
 	@echo "make fmt       ruff format + autofix"
 	@echo "make bench     non-blocking performance benchmarks (TEST-10)"
-	@echo "make up        docker compose up (M4)"
+	@echo "make ui        build the static control UI (ui/out)"
+	@echo "make up        start the Docker stack via scripts/up.sh (decrypts secrets)"
 	@echo "make backtest ARGS=\"...\"   run the event-driven backtester"
 
 check: lint typecheck imports cov secrets
@@ -38,7 +39,8 @@ cov:
 
 secrets:
 	@if command -v gitleaks >/dev/null 2>&1; then \
-		gitleaks git --no-banner --redact . && gitleaks dir --no-banner --redact src tests config docs; \
+		gitleaks git --no-banner --redact . && \
+		for d in src tests config docs scripts ui/app ui/lib; do gitleaks dir --no-banner --redact $$d || exit 1; done; \
 	else echo "gitleaks not installed: install it (brew install gitleaks) before committing"; exit 1; fi
 
 bench:
@@ -50,8 +52,11 @@ soak:
 backtest:
 	$(RUN) helm backtest $(ARGS)
 
+ui:
+	cd ui && npm ci --no-audit --no-fund && NEXT_TELEMETRY_DISABLED=1 npx tsc --noEmit && NEXT_TELEMETRY_DISABLED=1 npx next build
+
 up:
-	docker compose up -d --build
+	scripts/up.sh
 
 down:
 	docker compose down

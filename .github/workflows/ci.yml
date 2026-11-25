@@ -16,6 +16,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      - name: Install age (backup restore drill, OPS-6)
+        run: sudo apt-get update && sudo apt-get install -y age
       - name: Install gitleaks
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz gitleaks
@@ -23,3 +25,23 @@ jobs:
       - run: make check
       - name: Dependency audit (SEC-6)
         run: uvx pip-audit --strict -r <(uv export --no-hashes --format requirements-txt) || true
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: npx next build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Dependency audit (SEC-6)
+        run: npm audit --omit=dev --audit-level=high

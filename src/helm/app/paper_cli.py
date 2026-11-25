@@ -38,11 +38,17 @@ def cmd_paper(a: argparse.Namespace) -> int:
     from helm.tracking.alerts import AlertManager
 
     cfg = load_config(a.config, a.risk)
+    if a.api_host:  # e.g. 0.0.0.0 inside a container; publish the port on 127.0.0.1 only
+        cfg = cfg.model_copy(
+            update={"control": cfg.control.model_copy(update={"api_host": a.api_host})}
+        )
     bots = [b for b in cfg.engine.bots if b.mode is Mode.PAPER and (a.bot is None or b.id == a.bot)]
     if not bots:
         print("no paper bot found in config")
         return 2
     bot = bots[0]
+    ring = LogRing()
+    configure_logging(level=cfg.engine.log_level, mode_badge=Mode.PAPER.badge, ring=ring)
     log = get_logger(bot=bot.id, account=bot.account_id)
     data_dir = Path(cfg.engine.data_dir)
     acct_dir = data_dir / "accounts" / bot.account_id
@@ -63,8 +69,6 @@ def cmd_paper(a: argparse.Namespace) -> int:
             min_notional=Decimal(5),
             quote_ccy=quote_ccy,
         )
-    ring = LogRing()
-    configure_logging(level=cfg.engine.log_level, mode_badge=Mode.PAPER.badge, ring=ring)
 
     async def run() -> int:
         with AccountLock(data_dir / "locks", bot.account_id):
@@ -219,6 +223,7 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     p.add_argument("--secrets", choices=["env", "file"], default="env")
     p.add_argument("--ui-dir", default="ui/out", help="static UI build to serve")
     p.add_argument("--no-api", action="store_true", help="do not start the control API")
+    p.add_argument("--api-host", default=None, help="override control.api_host")
     p.add_argument("--config", default="config/helm.example.toml")
     p.add_argument("--risk", default="config/risk.example.toml")
     p.add_argument("--bot", default=None)

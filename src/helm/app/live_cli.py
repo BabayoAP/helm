@@ -57,6 +57,10 @@ def cmd_live(a: argparse.Namespace) -> int:
     from helm.tracking.alerts import AlertManager
 
     cfg = load_config(a.config, a.risk)
+    if a.api_host:  # e.g. 0.0.0.0 inside a container; publish the port on 127.0.0.1 only
+        cfg = cfg.model_copy(
+            update={"control": cfg.control.model_copy(update={"api_host": a.api_host})}
+        )
     bots = [b for b in cfg.engine.bots if b.mode is Mode.LIVE and (a.bot is None or b.id == a.bot)]
     if not bots:
         print("no live bot found in config", file=sys.stderr)
@@ -185,4 +189,5 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     p.add_argument("--flatten-first", action="store_true", help="EXE-3: flatten, then start")
     p.add_argument("--ui-dir", default="ui/out", help="static UI build to serve")
     p.add_argument("--no-api", action="store_true", help="do not start the control API")
+    p.add_argument("--api-host", default=None, help="override control.api_host")
     p.set_defaults(handler=cmd_live)

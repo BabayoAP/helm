@@ -4,7 +4,7 @@ Build status per requirement: docs/STATUS.md. Decisions: docs/decisions/.
 
 ## Commands
 - make check   # ruff, pyright, import-linter, pytest + risk 100% branch coverage, gitleaks — must pass before finishing any task
-- make test | make lint | make fmt | make cov | make up (docker compose) | make backtest ARGS="..."
+- make test | make lint | make fmt | make cov | make ui | make up (scripts/up.sh) | make backtest ARGS="..."
 - Python 3.12 via uv (`uv sync`, `uv run ...`). `PYTHONHASHSEED=0` is exported by the Makefile.
 - Tests that take hours (soaks) or benchmark are marked `slow` and excluded from `make check`.
 
@@ -29,11 +29,19 @@ Build status per requirement: docs/STATUS.md. Decisions: docs/decisions/.
 - Live brokers are only built by `helm.app.gates.build_broker` (EXE-1 triple gate + private token). Paper accounts are `paper-*`.
 - Fills (deduped by venue+trade_id) drive order fill state; order events never double count.
 - Chaos tests: `tests/chaos/` (WS drops, kill -9 via `fake_exchange_rpc`). Parity: `tests/replay/test_parity.py`.
+- First venue is Alpaca (0023). Adapter `helm.brokers.live.alpaca`; shared symbol/ts helpers + data feed in `helm.data.connectors.alpaca*`. Fill trade_id = `{venue_order_id}:{cum_qty}` (0025).
+- Alpaca tests use `tests/alpaca_fake.py` (httpx.MockTransport). It asserts the paper host; never point a test at `api.alpaca.markets`.
+- Control plane: `helm.api` / `helm.telegram` depend only on `helm.core.control.ControlPort` (0026); `helm.app.control.EnginePort` implements it. Commands always go through `Engine.control` (journaled).
+- Long-running extras (API, Telegram, heartbeat, daily summary) are `services` passed to the runner (`helm.app.services`). The one-time resume code goes to Telegram + console stderr, never the structured log.
+- UI: `ui/` Next.js static export (`make ui`), served by the API at `/` (0027). Backups: `helm backup|restore` with `age` (0028).
 
 ## Running things
 - `uv run helm backtest --synthetic 20000` (or `--symbol venue:BASE/QUOTE` after `helm data import|fetch`)
 - `uv run helm sweep --synthetic 525600` (screening only)
-- `uv run helm paper --soak-hours 1` (synthetic feed until the M4 venue exists)
+- `uv run helm paper --soak-hours 1` (synthetic feed) or `--feed alpaca` (needs Alpaca data keys)
+- `HELM_LIVE_TRADING=1 uv run helm live` (Alpaca; paper environment by default; all EXE-1 gates required)
+- `uv run helm backup --recipient age1...` / `uv run helm restore <archive> --identity <key> --to <empty dir>`
+- Docs for operators: `docs/RUNBOOK.md`, `docs/GO_LIVE_CHECKLIST.md`
 
 ## Workflow
 Milestones in PRD §15, in order. Tests first for risk, OMS state machine, accounting, fill models.

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import secrets as pysecrets
+import sys
 from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -158,6 +159,23 @@ class ControlPlane:
     sinks: list[Callable[[Alert], None]]
 
 
+def console_resume_code_sink(
+    resume_code: Callable[[], str | None], stream: Any = None
+) -> Callable[[Alert], None]:
+    """The local console is an authorized channel (SEC-5): print the one-time resume
+    code there on HALT. It is written to stderr directly, never to the structured
+    log (which the UI log tail and log shippers can read)."""
+
+    def sink(alert: Alert) -> None:
+        if alert.key != "halt":
+            return
+        code = resume_code()
+        if code:
+            print(f"HALTED. Resume code: {code}", file=stream or sys.stderr, flush=True)
+
+    return sink
+
+
 def _api_service(app: Any, host: str, port: int) -> Service:
     import uvicorn  # noqa: PLC0415
 
@@ -190,7 +208,7 @@ def build_control_plane(
 
     port = EnginePort(engine, venue=venue, ring=ring)
     services: list[Service] = []
-    sinks: list[Callable[[Alert], None]] = []
+    sinks: list[Callable[[Alert], None]] = [console_resume_code_sink(port.resume_code)]
     login_url: str | None = None
     cc = cfg.control
     if api:
@@ -201,7 +219,8 @@ def build_control_plane(
         hosts = ("127.0.0.1", "localhost", cc.api_host)
         app = create_app(port, token=token, allowed_hosts=hosts, static_dir=ui_dir)
         services.append(_api_service(app, cc.api_host, cc.api_port))
-        login_url = f"http://{cc.api_host}:{cc.api_port}/#token={token}"
+        shown = "127.0.0.1" if cc.api_host in ("0.0.0.0", "::") else cc.api_host  # noqa: S104
+        login_url = f"http://{shown}:{cc.api_port}/#token={token}"
     if cc.telegram_enabled:
         if store is None:
             raise RuntimeError("telegram enabled but no secrets store")

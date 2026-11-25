@@ -79,6 +79,37 @@ Legend: ✅ done (test-proven) · 🟡 partial (see note) · ⏳ needs wall-cloc
 
 **Exit criteria:** risk 100% branch coverage + property tests ✅ · TEST-4 ✅ · TEST-6 ✅ · TEST-7 ✅ · 24 h paper soak ⏳
 
-## M4 — Live adapter, control plane, UI, deploy ⬜ BLOCKED
+## M4 — Live adapter, control plane, UI, deploy 🟡 (code + tests done; soaks, drills and go-live need the owner's Alpaca keys and wall-clock time)
 
-**BLOCKING (PRD §4, §17 #1):** owner must choose the first venue. Default: crypto via CCXT on one US-accessible exchange with a working testnet.
+Venue decision (BLOCKING, PRD §17 #1): **Alpaca**, chosen by the owner 2026-11-25 (decision 0023). The Alpaca paper account plays the PRD's "testnet".
+
+| ID | Status | Proof |
+|---|---|---|
+| Live adapter: `AlpacaBroker`, trade-only, gated (EXE-1) | ✅ | `tests/integration/test_alpaca_broker.py` against `tests/alpaca_fake.py` (every request asserted to hit the **paper** host) |
+| Idempotent submit; ambiguous ⇒ UNKNOWN; 429 / 4xx / 5xx mapping (I4) | ✅ | `test_submit_maps_fields_and_handles_venue_answers` |
+| Stream ↔ REST fill identity, exact dedupe (decision 0025) | ✅ | `test_stream_and_rest_fills_share_trade_ids_so_dedupe_is_exact` (also caught a real pagination bug) |
+| EXE-3/EXE-4 restart + user-stream reconnect resync, no double count | ✅ | `test_engine_round_trip_and_restart_recovers_missed_fill_without_double_count`, `test_stream_auth_listen_reconnect_and_resync_hook` |
+| EXE-9 market hours (venue clock knows holidays), reduce-only check | ✅ | emulated reduce-only + closed-market tests; stale-feed breaker only applies in session |
+| SEC-1 preflight (status, blocks, environment/URL, attest for real money); SEC-9 PDT warnings | ✅ | `test_preflight_sec1_and_pdt_warnings` |
+| DATA-3 Alpaca history (resumable, via M1 `fetch_history`) | ✅ | `test_history_fetch_resumes_and_gap_fill_returns_only_closed_bars` |
+| DATA-5 Alpaca live feed via WsManager + real websockets transport | ✅ | `tests/integration/test_ws_transport.py` (local server, drop + reconnect) |
+| OPS-1 Telegram: user **and** chat allowlist, silent ignore + log, rate limit, `/kill` one step | ✅ | `test_telegram_unauthorized_never_triggers_anything`, `test_telegram_commands_kill_in_one_step_and_rate_limit` |
+| OPS-2 alerts to Telegram; storm bounded; resume code only to authorized channels; daily summary | ✅ | `test_alert_storm_to_telegram_is_bounded_and_halt_carries_resume_code`, `test_daily_summary_fires_once_per_day`, `test_resume_code_goes_to_console_not_to_the_log` |
+| OPS-3 dead-man heartbeat, off when unset | ✅ | `test_heartbeat_pings_only_while_healthy_and_is_optional`; setup in `docs/RUNBOOK.md` |
+| OPS-5 `/health` + Docker healthcheck + `restart: unless-stopped` | 🟡 | `/health` tested; `Dockerfile`/`docker-compose.yml` written, base image tags verified, **not built here (no Docker on the dev machine)** |
+| OPS-6 encrypted backups + restore drill | ✅ | `tests/integration/test_backup.py` (age, live WAL journal, wrong key refused, triggers verified) |
+| UI-1 header (mode badge, status, day PnL, feed, Kill + confirm) | ✅ | `ui/app/page.tsx`; kill/resume exercised against a running engine through the API |
+| UI-2 dashboard (equity, positions, orders, bots + controls, risk bars) | ✅ | same; snapshot view models tested in `test_snapshot_views_and_downsampling` |
+| UI-6 logs & alerts (log tail with filters, risk-decision audit) | ✅ | `LogRing` (post-redaction) + `/api/logs`; token never in logs (checked live) |
+| UI-7 ws updates ≤ 10 Hz, only on change | ✅ | `/ws` loop; `test_api_kill_from_ui_halts_and_websocket_needs_token` |
+| UI-8 / SEC-5 localhost bind, session token, CSRF header + origin, host guard, rate limit | ✅ | `test_api_auth_csrf_host_and_rate_limit` |
+| SEC-4 research container: no credentials, no network | 🟡 | `docker-compose.yml` `research` profile (`network_mode: none`); not run here |
+| SEC-6 pinned lockfiles, npm audit + pip-audit in CI, non-root read-only containers | ✅ | `uv.lock`, `ui/package-lock.json` (0 vulns), CI jobs, Dockerfile `USER helm`, compose `read_only` |
+| Runbook + go-live checklist | ✅ | `docs/RUNBOOK.md`, `docs/GO_LIVE_CHECKLIST.md` |
+| 7-day paper soak on the live feed | ⏳ | `helm paper --feed alpaca --soak-hours 168` (needs Alpaca data keys + a week) |
+| Alpaca-paper ("testnet") live run with kill/flatten drills | ⏳ | `helm live` with `environment = "paper"`; drills listed in the go-live checklist |
+| Go-live checklist completed; first real money at `LIVE_SMALL` caps | ⏳ | owner decision; nothing here places real-money orders |
+
+**Exit criteria (MVP):** 7-day paper soak on live feed ⏳ · testnet (Alpaca paper) run with kill/flatten drills ⏳ · go-live checklist ⏳ · first real-money run at `LIVE_SMALL` caps ⏳ (all need the owner's keys/time; code and tests are done)
+
+Carried over: M1 24 h live recording (DATA-4) and M3 24 h soak can now run on the Alpaca feed (`helm paper --feed alpaca --record --soak-hours 24`).

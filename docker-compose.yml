@@ -1,0 +1,58 @@
+# Helm stack (OPS-5, OPS-6, SEC-2/3/4/6). Start with scripts/up.sh, which decrypts
+# the age-encrypted secrets into this process's environment only (never a .env file).
+# The UI/API is published on 127.0.0.1 only; reach it remotely via Tailscale.
+
+x-image: &image
+  build: .
+  image: helm:local
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp"]
+
+services:
+  engine:
+    <<: *image
+    restart: unless-stopped
+    # Default is SAFE: Helm paper mode on the live Alpaca feed (no orders reach Alpaca).
+    # For the Alpaca paper account or real money see docs/RUNBOOK.md ("Going live").
+    command: ["paper", "--config", "/app/config/helm.toml", "--risk", "/app/config/risk.toml",
+              "--feed", "alpaca", "--secrets", "file", "--ui-dir", "/app/ui/out",
+              "--api-host", "0.0.0.0"]
+    # environment:
+    #   HELM_LIVE_TRADING: "1"   # EXE-1 gate (a). Leave unset unless you mean it.
+    ports: ["127.0.0.1:8765:8765"]
+    volumes:
+      - ./data:/app/data
+      - ./config/helm.toml:/app/config/helm.toml:ro
+      - ./config/risk.toml:/app/config/risk.toml:ro
+    secrets: [alpaca_paper_key_id, alpaca_paper_secret_key]  # + telegram_bot_token if enabled
+
+  backup:
+    <<: *image
+    restart: unless-stopped
+    entrypoint: ["sh", "-c"]
+    command:
+      - 'while true; do helm backup --data-dir /app/data --out-dir /backups --recipient "$$BACKUP_AGE_RECIPIENT"; sleep 86400; done'
+    environment:
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:?set the age public key (age1...)}
+    volumes:
+      - ./data:/app/data:ro
+      - ./backups:/backups
+    network_mode: none
+
+  research:
+    <<: *image
+    profiles: ["research"]
+    entrypoint: ["sleep", "infinity"]
+    network_mode: none   # SEC-4: no credentials, no broker egress
+    volumes:
+      - ./data/lake:/app/data/lake:ro
+
+secrets:
+  alpaca_paper_key_id:
+    environment: HELM_SECRET_ALPACA_PAPER_KEY_ID
+  alpaca_paper_secret_key:
+    environment: HELM_SECRET_ALPACA_PAPER_SECRET_KEY
+  # telegram_bot_token:
+  #   environment: HELM_SECRET_TELEGRAM_BOT_TOKEN
