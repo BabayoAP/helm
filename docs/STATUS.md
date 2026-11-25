@@ -125,7 +125,8 @@ Carried over: M1 24 h live recording (DATA-4) and M3 24 h soak can now run on th
 | RES-4 regression: deliberately overfit strategy is rejected (and a genuine edge passes) | ✅ | `test_overfit_strategy_is_rejected` (fails DSR 0.80, plateau −2%, WF efficiency 35%), `test_genuine_edge_passes_and_holdout_is_logged_once` |
 | §13 promotion lifecycle: gates, one step, named manual approval, journaled, reset on code/param change | ✅ | `test_gates_and_registry_walk_the_lifecycle`, `test_promote_cli_status_request_and_history` |
 | EXE-1 (c) for real money read from the promotion registry | ✅ | `test_real_money_needs_the_registry_not_just_the_config` (decision 0030) |
-| §13 parity on recorded feed / PAP-4 divergence as automated evidence | 🟡 | manual `--confirm-*` flags recorded in the approval for now |
+| §13 paper/backtest parity on a recorded feed as automated evidence | ✅ | `helm research parity`; `test_parity_of_a_paper_run_counts_as_promotion_evidence` |
+| PAP-4 paper-vs-live divergence report on demand (fill price + latency deltas, suggested slippage) | ✅ | `helm research divergence`; `test_divergence_report_measures_slippage_and_latency`. LIVE gate needs the report **and** `--confirm-divergence` |
 | BT-4 L1 replay backtester with queue position for passive orders; deterministic | ✅ | `tests/integration/test_replay_queue.py`; `helm backtest --replay <recording>` (decision 0034). L2 book replay: no L2 data on Alpaca's feed |
 | EXE-5 TWAP: per-slice risk, no burst after pause, cancel on stop/flatten/kill | ✅ | `tests/integration/test_twap.py` (decision 0032) |
 | DATA-9 adjusted vs raw kept apart + recorded; survivorship + raw-price warnings on equities tearsheets | ✅ | `tests/unit/test_equities_hygiene.py`; `helm data fetch --symbol alpaca:SPY/USD --asset-class equity --adjusted` |

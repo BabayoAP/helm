@@ -187,7 +187,9 @@ def test_gates_and_registry_walk_the_lifecycle(tmp_path: Path) -> None:
 
     # LIVE needs days at capped capital + divergence report
     g = check_gate(S.LIVE, Evidence(live_small=_stats(20, 9), divergence_confirmed=False), cfg)
-    assert g.reasons == ["paper-vs-live divergence report (PAP-4) not confirmed"]
+    assert len(g.reasons) == 1 and "divergence report (PAP-4)" in g.reasons[0]
+    ok = Evidence(live_small=_stats(20, 9), divergence_report=True, divergence_confirmed=True)
+    assert check_gate(S.LIVE, ok, cfg).passed
     assert not check_gate(S.LIVE, Evidence(), cfg).passed
     assert not check_gate(S.DRAFT, Evidence(), cfg).passed
 

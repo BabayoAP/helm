@@ -85,7 +85,8 @@ class Evidence:
     paper: AccountStats | None = None
     live_small: AccountStats | None = None
     parity_confirmed: bool = False  # paper/backtest parity on a recorded feed (TEST-4)
-    divergence_confirmed: bool = False  # PAP-4 divergence report reviewed
+    divergence_report: bool = False  # a PAP-4 report exists for this version
+    divergence_confirmed: bool = False  # ... and the approver reviewed it
     rejections_reviewed: bool = False
 
 
@@ -145,7 +146,9 @@ def check_gate(target: LifecycleStage, ev: Evidence, cfg: PromotionConfig) -> Ga
             if p.currently_halted:
                 reasons.append("paper engine is HALTED: resolve before promoting")
         if not ev.parity_confirmed:
-            reasons.append("paper/backtest parity on a recorded feed not confirmed")
+            reasons.append(
+                "paper/backtest parity on a recorded feed not shown (helm research parity)"
+            )
         if not ev.rejections_reviewed:
             reasons.append("risk rejections not confirmed as reviewed")
     elif target is S.LIVE:
@@ -159,7 +162,10 @@ def check_gate(target: LifecycleStage, ev: Evidence, cfg: PromotionConfig) -> Ga
             if ls.currently_halted:
                 reasons.append("live engine is HALTED")
         if not ev.divergence_confirmed:
-            reasons.append("paper-vs-live divergence report (PAP-4) not confirmed")
+            reasons.append(
+                "paper-vs-live divergence report (PAP-4): run helm research divergence, "
+                "review it, then --confirm-divergence"
+            )
     else:
         reasons.append(f"cannot promote into {target.value}")
     return GateResult(target, not reasons, reasons, summary)
@@ -256,6 +262,8 @@ def gather_evidence(
     runs = [r for r in store.runs(strategy=v.strategy, code=v.code_hash, limit=10_000)]
     mine = [r for r in runs if r.params_hash == v.params_hash]
     return Evidence(
+        parity_confirmed=any(r.kind == "parity" and r.passed for r in mine),
+        divergence_report=any(r.kind == "divergence" for r in mine),
         backtests=[r for r in mine if r.kind == "backtest"],
         validations=sorted(
             (r for r in mine if r.kind == "validation"), key=lambda r: r.ts, reverse=True

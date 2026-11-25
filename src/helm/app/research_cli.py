@@ -199,6 +199,97 @@ def cmd_rerun(a: argparse.Namespace) -> int:
     return 0 if out.reproduced else 1
 
 
+def cmd_parity(a: argparse.Namespace) -> int:
+    """§13 PAPER -> LIVE_SMALL evidence: replay the feed recorded during a paper run
+    through the backtester (paper's fill model) and compare with the paper journal."""
+    from decimal import Decimal
+
+    from helm.app.backtest import events_hash, run_replay
+    from helm.app.research import RunSettings, instrument_for_symbol
+    from helm.core.config import PromotionConfig
+    from helm.data.recorder import replay
+    from helm.infra.config import load_config
+    from helm.research.experiments.store import ExperimentStore
+    from helm.research.reports import load_account, parity_report
+    from helm.strategy.loader import load_strategy
+
+    promo = load_config(promotion_path=a.promotion).promotion if a.promotion else PromotionConfig()
+    events = list(replay(a.recording))
+    if not events:
+        print(f"no events in {a.recording}", file=sys.stderr)
+        return 2
+    settings = RunSettings(
+        strategy=a.strategy,
+        instrument=instrument_for_symbol(a.symbol),
+        starting_equity=Decimal(a.equity),
+    )
+    params = _params(a.param)
+    res = run_replay(settings.spec(params), events, queue_model=False)  # paper's fill model
+    paper = load_account(a.paper_journal, a.paper_account)
+    rep = parity_report(
+        paper,
+        res.orders,
+        res.fills,
+        equity=Decimal(a.equity),
+        tolerance_bp=promo.parity_pnl_tolerance_bp,
+    )
+    store = ExperimentStore(a.db)
+    import secrets
+
+    store.record(
+        run_id=f"parity-{secrets.token_hex(4)}",
+        kind="parity",
+        strategy=load_strategy(a.strategy),
+        params=params,
+        data_hash=events_hash(events),
+        data_desc=json.dumps({"recording": str(a.recording), "paper_account": a.paper_account}),
+        spec_hash=res.spec_hash,
+        seed=0,
+        n_trials=0,
+        metrics={"pnl_delta_bp": rep.pnl_delta_bp},
+        result_hash=res.result_hash,
+        passed=rep.passed,
+        report=rep.to_dict(),
+    )
+    store.close()
+    print(json.dumps(rep.to_dict(), indent=2, default=str))
+    return 0 if rep.passed else 1
+
+
+def cmd_divergence(a: argparse.Namespace) -> int:
+    """PAP-4: paper-vs-live fill price / latency deltas, on demand."""
+    from helm.research.experiments.store import ExperimentStore
+    from helm.research.reports import divergence_report, load_account
+    from helm.strategy.loader import load_strategy
+
+    rep = divergence_report(
+        load_account(a.paper_journal, a.paper_account),
+        load_account(a.live_journal, a.live_account),
+        window_s=a.window_s,
+    )
+    if a.strategy:
+        import secrets
+
+        store = ExperimentStore(a.db)
+        store.record(
+            run_id=f"divergence-{secrets.token_hex(4)}",
+            kind="divergence",
+            strategy=load_strategy(a.strategy),
+            params=_params(a.param),
+            data_hash="",
+            data_desc=json.dumps({"paper": a.paper_account, "live": a.live_account}),
+            spec_hash="",
+            seed=0,
+            n_trials=0,
+            metrics={"median_delta_bps": rep.price_delta_bps.get("median")},
+            result_hash="",
+            report={k: v for k, v in rep.to_dict().items() if k != "rows"},
+        )
+        store.close()
+    print(json.dumps({k: v for k, v in rep.to_dict().items() if k != "rows"}, indent=2))
+    return 0
+
+
 # ------------------------------------------------------------------ promote
 def _lookahead_ok(strategy: str, params: dict[str, Any], symbol: str) -> bool:
     from helm.app.research import DataSource, instrument_for_symbol
@@ -256,9 +347,9 @@ def cmd_promote(a: argparse.Namespace) -> int:
             ev.paper = account_stats(a.paper_journal, a.paper_account)
         if a.live_journal:
             ev.live_small = account_stats(a.live_journal, a.live_account)
-        ev.parity_confirmed = a.confirm_parity
+        ev.parity_confirmed = a.confirm_parity or ev.parity_confirmed
         ev.rejections_reviewed = a.confirm_rejections_reviewed
-        ev.divergence_confirmed = a.confirm_divergence
+        ev.divergence_confirmed = a.confirm_divergence and ev.divergence_report
         promo = load_config(promotion_path=a.promotion).promotion if a.promotion else None
         from helm.core.config import PromotionConfig
 
@@ -333,6 +424,27 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     rr.add_argument("run_id")
     rr.add_argument("--db", default=DEFAULT_DB)
     rr.set_defaults(handler=cmd_rerun)
+    pa = rs.add_parser("parity", help="paper vs backtest replay of a recorded feed (§13)")
+    pa.add_argument("--recording", required=True, help="session dir from helm paper --record")
+    pa.add_argument("--paper-journal", required=True)
+    pa.add_argument("--paper-account", default="paper-main")
+    pa.add_argument("--strategy", default="helm.strategy.examples.sma_cross:SmaCross")
+    pa.add_argument("--param", action="append", default=[])
+    pa.add_argument("--symbol", default="fake:BTC/USD")
+    pa.add_argument("--equity", default="10000")
+    pa.add_argument("--promotion", default=None)
+    pa.add_argument("--db", default=DEFAULT_DB)
+    pa.set_defaults(handler=cmd_parity)
+    dv = rs.add_parser("divergence", help="paper-vs-live fill/latency deltas (PAP-4)")
+    dv.add_argument("--paper-journal", required=True)
+    dv.add_argument("--paper-account", required=True)
+    dv.add_argument("--live-journal", required=True)
+    dv.add_argument("--live-account", required=True)
+    dv.add_argument("--window-s", type=float, default=10.0)
+    dv.add_argument("--strategy", default=None, help="record it for this strategy version")
+    dv.add_argument("--param", action="append", default=[])
+    dv.add_argument("--db", default=DEFAULT_DB)
+    dv.set_defaults(handler=cmd_divergence)
 
     p = sub.add_parser("promote", help="strategy promotion lifecycle (PRD §13)")
     p.add_argument("action", choices=["status", "request", "demote", "history"])

@@ -7,5 +7,7 @@
   - Code hash covers every `.py` file in the strategy's package directory, so editing a shared helper also resets.
   - For **real money** (`environment = "live"`), `helm live` passes the registry stage into gate (c). A config claiming LIVE_SMALL is not enough. For the **Alpaca paper account**, a lower registry stage only logs a warning, so M4 drills can run before a strategy is proven.
 - **Consequence:**
-  - Gates that need data Helm doesn't produce yet are explicit `--confirm-*` flags, recorded in the approval: paper/backtest parity on a recorded live feed, the risk-rejection review, and the PAP-4 divergence report.
+  - Paper/backtest parity is automatic evidence: a passing `helm research parity` record (a replay of the recorded paper feed vs the paper journal) satisfies it.
+  - The PAP-4 divergence report must exist (`helm research divergence --strategy ...`) **and** be confirmed with `--confirm-divergence`, because "acceptable" is a judgement call.
+  - The risk-rejection review stays a `--confirm-rejections-reviewed` flag, recorded in the approval.
   - Paper and live-small evidence (days, round trips, halts) is read from the account journal.
