@@ -36,7 +36,10 @@ Build status per requirement: docs/STATUS.md. Decisions: docs/decisions/.
 - Research (Phase 2): `helm.research.validation.suite` takes an injected evaluator (0031); `helm.app.research` supplies the event-driven one, DataSource/RunSettings (serialisable for reruns) and journal account stats. Experiments + promotions live in `data/research.sqlite` (append-only).
 - Strategies declare `param_space` (`helm.strategy.params`). A strategy version = (path, code hash of its package dir, params hash); any change => DRAFT (0030). Real money reads gate (c) from the promotion registry.
 - Tracking: `helm.tracking.watchlist` (TRK-1) + `helm.tracking.rules` (TRK-2, edge-triggered; delivery via AlertManager). Runner `engine_symbols` keeps watch-only symbols out of the engine.
-- TWAP: `OrderIntent.exec_algo = TwapSpec(...)`; engine slices via `helm.oms.algos` (0032).
+- Exec algos: `OrderIntent.exec_algo` = `TwapSpec | VwapSpec | IcebergSpec` (discriminated by `kind`); engine runs them via `helm.oms.algos` (0032).
+- Multi-strategy: bots set `capital_pct` / `daily_loss_cap`; per-strategy `Portfolio` on each slot, rebuilt from the journal (0035).
+- RES-5 sandbox: `helm.research.sandbox` (static allowlist + audit-hook child process). Drafts live in `data/drafts`, never under `helm.strategy` (0036/0037).
+- Webhooks: `helm.api.webhooks` on its own port, HMAC + replay protection; journal + alert only (0038).
 - UI: `ui/` Next.js static export (`make ui`), served by the API at `/` (0027). Backups: `helm backup|restore` with `age` (0028).
 
 ## Running things

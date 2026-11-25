@@ -292,6 +292,15 @@ def build_control_plane(
             min_severity=Severity.WARN,
         )
         sinks.append(sink)
+    if cc.webhook_sources:
+        from helm.api.webhooks import create_webhook_app  # noqa: PLC0415
+
+        if store is None:
+            raise RuntimeError("webhooks enabled but no secrets store")
+        hook_secrets = {src: store.get(f"webhook_{src}_secret") for src in cc.webhook_sources}
+        services.append(
+            _api_service(create_webhook_app(port, hook_secrets), cc.webhook_host, cc.webhook_port)
+        )
     hb = heartbeat_service(
         cfg.engine.heartbeat_url,
         every_s=cc.heartbeat_every_s,

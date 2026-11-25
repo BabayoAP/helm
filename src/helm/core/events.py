@@ -103,6 +103,17 @@ class NewsEvent(Model):
     ts_event: int
 
 
+class WebhookEvent(Model):
+    """DATA-7: a verified external signal (HMAC-signed, replay-protected). Journaled and
+    alerted; it never places orders on its own (TRK-4 default action = alert)."""
+
+    source: str
+    payload_json: str
+    signature: str
+    ts_sent: int  # sender timestamp (ns)
+    ts_recv: int
+
+
 class ConfigChanged(Model):
     """SEC-7: config changes are journaled, including refused ones."""
 
@@ -131,6 +142,7 @@ EVENT_TYPES: dict[str, type[BaseModel]] = {
         BookSnapshot,
         WalletEvent,
         NewsEvent,
+        WebhookEvent,
         IntentEvent,
         ConfigChanged,
         OrderIntent,

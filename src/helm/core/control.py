@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from helm.core.enums import EngineState, Mode
-from helm.core.events import Alert, ControlCommand
+from helm.core.events import Alert, ControlCommand, WebhookEvent
 from helm.core.models import Model
 
 
@@ -176,3 +176,11 @@ class ControlPort(Protocol):
     def chart(self, symbol: str, n: int = 500) -> ChartView | None: ...
 
     def research(self, limit: int = 100) -> ResearchView: ...
+
+
+class WebhookSink(Protocol):
+    """Where verified webhooks go (journal + alert). Deliberately no trading surface."""
+
+    def receive_webhook(self, event: WebhookEvent) -> None: ...
+
+    def now(self) -> int: ...

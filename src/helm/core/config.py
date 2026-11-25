@@ -147,6 +147,10 @@ class ControlConfig(_Cfg):
     telegram_enabled: bool = False
     telegram_rate_per_min: int = Field(default=20, gt=0)
     heartbeat_every_s: float = Field(default=60.0, gt=0)
+    # DATA-7 signed webhooks: separate listener; secrets are webhook_<source>_secret
+    webhook_sources: tuple[str, ...] = ()
+    webhook_host: str = "127.0.0.1"
+    webhook_port: int = 8766
 
 
 RuleKind = Literal[

@@ -21,7 +21,7 @@ from helm.core.control import (
     ResearchView,
     RiskUtilization,
 )
-from helm.core.events import ControlCommand
+from helm.core.events import ControlCommand, WebhookEvent
 from helm.core.models import Fill
 from helm.infra.logging import LogRing
 from helm.tracking.watchlist import Watchlist
@@ -162,6 +162,19 @@ class EnginePort:
 
     def logs(self, n: int = 200) -> list[dict[str, object]]:
         return self.ring.tail(n) if self.ring is not None else []
+
+    def receive_webhook(self, event: WebhookEvent) -> None:
+        """DATA-7 sink: journal + INFO alert. A webhook can never trade by itself."""
+        self.engine.journal.append(
+            event,
+            ts=event.ts_recv,
+            run_id=self.engine.run_id,
+            account_id=self.engine.account_id,
+            key=f"webhook:{event.source}",
+        )
+        self.engine.alerts.info(
+            f"webhook:{event.source}", f"webhook {event.source}: {event.payload_json[:300]}"
+        )
 
     async def command(self, cmd: ControlCommand) -> str:
         return await self.engine.control(cmd)

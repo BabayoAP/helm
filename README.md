@@ -33,6 +33,15 @@ make ui                                                # build the control UI (s
 
 The engine prints `control UI: http://127.0.0.1:8765/#token=...` on start.
 
+Research and promotion (is a strategy any good, and is it allowed near real money?):
+
+```bash
+uv run helm research validate --synthetic 3000 --timeframe 1h --param qty=1   # walk-forward, purged CV, DSR, plateau
+uv run helm research draft --idea "buy pullbacks in an uptrend"              # AI draft -> sandboxed checks, never deploys
+uv run helm backtest --replay data/recordings/<session>                       # L1 replay with queue model
+uv run helm promote status --param fast=10 --param slow=40 --param qty=1      # DRAFT -> ... -> LIVE_SMALL -> LIVE
+```
+
 ## Safety
 
 - No real-money orders in development or tests: `FakeExchange`, testnets, paper only.
@@ -56,7 +65,8 @@ src/helm/
   app/       engine, backtest/paper/live CLIs, lifecycle/recovery, gates, control port, services
   api/       FastAPI control plane (talks to the engine only via helm.core.control)
   telegram/  Telegram bot + alert sink
-  tracking/  alert manager
+  tracking/  alert manager, watchlist, alert rules
+  research/  experiments, validation suite, promotion registry, reports, strategy sandbox
 ui/          Next.js static UI (served same-origin by the API)
 Dockerfile, docker-compose.yml, scripts/up.sh   deploy (OPS-5)
 ```
