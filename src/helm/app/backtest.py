@@ -187,6 +187,7 @@ def write_report(
     *,
     title: str,
     extra_meta: dict[str, Any] | None = None,
+    adjusted: bool | None = None,
 ) -> Path:
     from helm.backtest.tearsheet.html import render  # noqa: PLC0415
 
@@ -203,6 +204,9 @@ def write_report(
         "risk_rejections": result.stats.get("rejected", 0),
         **(extra_meta or {}),
     }
+    warnings = data_warnings(spec.instruments, adjusted)
+    if adjusted is not None:
+        meta["prices"] = "adjusted (split+dividend)" if adjusted else "raw"
     return render(
         out_dir,
         title=title,
@@ -210,4 +214,25 @@ def write_report(
         metrics=result.metrics.to_dict(),
         curve=[(ts, float(eq)) for ts, eq in result.equity_curve],
         meta=meta,
+        warnings=warnings,
     )
+
+
+def data_warnings(instruments: Sequence[Instrument], adjusted: bool | None) -> list[str]:
+    """DATA-9 caveats shown on every equities tearsheet."""
+    from helm.core.enums import AssetClass  # noqa: PLC0415
+
+    if not any(i.asset_class is AssetClass.EQUITY for i in instruments):
+        return []
+    out = [
+        "Survivorship bias: this universe was picked today and is static. Stocks that were "
+        "delisted, acquired or went bankrupt during the test are missing, which flatters results."
+    ]
+    if adjusted is False:
+        out.append(
+            "Raw (unadjusted) prices: splits show up as fake price jumps. Re-run with adjusted "
+            "bars (helm data fetch --adjusted) for signals; raw is right only for fill prices."
+        )
+    elif adjusted is None:
+        out.append("Price adjustment unknown: record whether bars are raw or adjusted.")
+    return out

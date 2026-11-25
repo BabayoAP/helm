@@ -50,6 +50,7 @@ def cmd_backtest(a: argparse.Namespace) -> int:
         end=a.end,
         asset_class=a.asset_class,
         data_dir=a.data_dir,
+        adjusted=a.adjusted,
     )
     bars = source.load()
     if not bars:
@@ -67,7 +68,13 @@ def cmd_backtest(a: argparse.Namespace) -> int:
     spec = settings.spec(_params(a.param))
     res = run_backtest(spec, bars)
     out = Path(a.out) / f"{spec.strategy.id}-{res.run_id}"
-    path = write_report(res, spec, out, title=f"{spec.strategy.id} · {a.symbol} · {a.timeframe}")
+    path = write_report(
+        res,
+        spec,
+        out,
+        title=f"{spec.strategy.id} · {a.symbol} · {a.timeframe}",
+        adjusted=a.adjusted if not a.synthetic else None,
+    )
     if not a.no_record:  # RES-2: every run is recorded and can be rerun
         store = ExperimentStore(a.db)
         record_backtest(store, settings, source, spec, res)
@@ -129,6 +136,7 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     bt.add_argument("--data-dir", default="data")
     bt.add_argument("--out", default="reports")
     bt.add_argument("--db", default="data/research.sqlite", help="experiment log (RES-2)")
+    bt.add_argument("--adjusted", action="store_true", help="use split/dividend-adjusted bars")
     bt.add_argument("--no-record", action="store_true")
     bt.set_defaults(handler=cmd_backtest)
 

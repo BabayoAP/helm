@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from datetime import UTC, datetime
 
 from helm.core.enums import AssetClass
@@ -13,7 +14,9 @@ from helm.data.validators import gap_report
 
 
 def _key(a: argparse.Namespace) -> SeriesKey:
-    return SeriesKey(AssetClass(a.asset_class), a.symbol, "bars", a.timeframe)
+    """DATA-9: adjusted (split/dividend) bars live in their own series, never mixed with raw."""
+    datatype = "bars_adj" if getattr(a, "adjusted", False) else "bars"
+    return SeriesKey(AssetClass(a.asset_class), a.symbol, datatype, a.timeframe)
 
 
 def _ts(s: str) -> int:
@@ -58,7 +61,25 @@ def cmd_fetch(a: argparse.Namespace) -> int:
 
     async def run() -> int:
         venue = a.symbol.split(":")[0]
-        client = getattr(ccxt_async, venue)({"enableRateLimit": False})
+        if venue == "alpaca":  # market data needs keys even for the free feed (decision 0023)
+            from helm.data.connectors.alpaca import AlpacaOhlcvClient
+            from helm.data.connectors.alpaca_common import AlpacaCredentials, is_crypto
+            from helm.infra.secrets import EnvSecretStore
+
+            store = EnvSecretStore()
+            client = AlpacaOhlcvClient(
+                AlpacaCredentials(
+                    store.get(f"{a.credentials}_key_id"), store.get(f"{a.credentials}_secret_key")
+                ),
+                crypto=is_crypto(a.symbol),
+                feed=a.feed,
+                adjustment="all" if a.adjusted else "raw",
+            )
+        else:
+            if a.adjusted:
+                print("--adjusted applies to equities (alpaca) only", file=sys.stderr)
+                return 2
+            client = getattr(ccxt_async, venue)({"enableRateLimit": False})
         try:
             gov = RateGovernor.for_window(a.requests_per_s, 1.0)
             res = await fetch_history(
@@ -99,6 +120,7 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     imp = dsub.add_parser("import", help="import CSV/Parquet bars into the lake (DATA-2)")
     imp.add_argument("path")
     common(imp)
+    imp.add_argument("--adjusted", action="store_true", help="the file holds adjusted bars")
     imp.set_defaults(handler=cmd_import)
 
     gaps = dsub.add_parser("gaps", help="gap report for a series")
@@ -106,9 +128,14 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     gaps.set_defaults(handler=cmd_gaps)
 
     fetch = dsub.add_parser(
-        "fetch", help="fetch history from a CCXT venue (public endpoints, DATA-3)"
+        "fetch", help="fetch history from a CCXT venue or Alpaca (DATA-3, DATA-9)"
     )
     common(fetch)
+    fetch.add_argument(
+        "--adjusted", action="store_true", help="split+dividend adjusted equities (bars_adj)"
+    )
+    fetch.add_argument("--feed", default="iex", help="alpaca stock feed: iex (free) or sip")
+    fetch.add_argument("--credentials", default="alpaca_paper", help="alpaca secret name prefix")
     fetch.add_argument("--start", required=True, help="ISO date, UTC")
     fetch.add_argument("--end", required=True, help="ISO date, UTC")
     fetch.add_argument("--requests-per-s", type=int, default=5)

@@ -44,6 +44,7 @@ from helm.core.events import (
 from helm.core.models import Bar, Fill, Instrument, Order, OrderIntent, Quote, RiskDecision, Trade
 from helm.data.instruments import InstrumentRegistry
 from helm.oms.accounting import Portfolio
+from helm.oms.algos import TwapState, twap_schedule
 from helm.oms.journal import Journal
 from helm.oms.order_manager import OrderManager
 from helm.oms.reconciler import ReconcileResult, reconcile
@@ -132,6 +133,8 @@ class Engine:
         self.last_resume_code: str | None = None
         self.flatten_failures = 0
         self.bar_mode_synthetic_quotes = True
+        self.algos: list[TwapState] = []
+        self._algo_seq = 0
         self._real_quote_symbols: set[str] = set()
 
     # ------------------------------------------------------------- utilities
@@ -375,7 +378,61 @@ class Engine:
         self, slot: StrategySlot | None, intents: list[OrderIntent], *, is_flatten: bool = False
     ) -> None:
         for raw in intents:
-            await self.submit_intent(slot, raw, is_flatten=is_flatten)
+            if raw.exec_algo is not None and not is_flatten:
+                await self._start_twap(slot, raw)
+            else:
+                await self.submit_intent(slot, raw, is_flatten=is_flatten)
+
+    # ------------------------------------------------------------ algos (EXE-5)
+    async def _start_twap(self, slot: StrategySlot | None, parent: OrderIntent) -> None:
+        assert parent.exec_algo is not None
+        self._journal(IntentEvent(intent=parent, ts=self.clock.now()), key=parent.strategy_id)
+        inst = self.instruments.find(parent.symbol)
+        lot = inst.lot_size if inst is not None else Decimal("0.00000001")
+        spec = parent.exec_algo
+        self._algo_seq += 1
+        algo = TwapState(
+            algo_id=f"{self.run_id}-twap-{self._algo_seq}",
+            parent=parent,
+            strategy_id=parent.strategy_id,
+            schedule=twap_schedule(
+                parent.qty, spec.slices, self.clock.now(), spec.duration_s * NS_PER_S, lot
+            ),
+        )
+        self.algos.append(algo)
+        await self.run_algos()
+
+    async def run_algos(self) -> None:
+        """Send due TWAP slices, at most one per algo per tick. Each slice is an ordinary
+        intent: risk-checked on its own. Nothing is sent while the engine or the strategy
+        is paused; the schedule slides back instead of bursting on resume."""
+        now = self.clock.now()
+        for algo in list(self.algos):
+            slot = self._slot_by_strategy.get(algo.strategy_id)
+            if algo.done:
+                self.algos.remove(algo)
+                continue
+            if algo.schedule[algo.sent][0] > now:
+                continue
+            if self.ks.state is not EngineState.RUNNING or (slot is not None and slot.paused):
+                algo.deferred += 1
+                continue
+            nxt = algo.take_next(now)  # at most one slice per tick
+            assert nxt is not None
+            k, qty = nxt
+            order = await self.submit_intent(slot, algo.child(k, qty))
+            if order is None:
+                algo.rejected += 1
+            else:
+                algo.children.append(order.client_order_id)
+            if algo.done:
+                self.algos.remove(algo)
+
+    def cancel_algos(self, strategy_id: str | None = None) -> int:
+        keep = [a for a in self.algos if strategy_id is not None and a.strategy_id != strategy_id]
+        dropped = len(self.algos) - len(keep)
+        self.algos = keep
+        return dropped
 
     async def submit_intent(
         self, slot: StrategySlot | None, raw: OrderIntent, *, is_flatten: bool = False
@@ -479,6 +536,7 @@ class Engine:
         )
         for trip in trips:
             await self._execute_trip(trip)
+        await self.run_algos()
         return trips
 
     def _feeds_in_session(self, now: int) -> dict[str, FeedHealth]:
@@ -556,6 +614,7 @@ class Engine:
         await self._drain_broker()
 
     async def cancel_all(self) -> None:
+        self.cancel_algos()
         for o in list(self.om.working_orders()):
             await self._cancel(o.client_order_id)
 
@@ -605,6 +664,7 @@ class Engine:
                 s.paused = True
             return "paused"
         if cmd.action is ControlAction.STOP:
+            self.cancel_algos(cmd.target)
             for s in targets:
                 s.paused = True
             for o in list(self.om.working_orders()):

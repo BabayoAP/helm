@@ -154,6 +154,14 @@ class WalletEvent(Model):
     ts_event: int
 
 
+class TwapSpec(Model):
+    """EXE-5: split the intent into `slices` child orders spread evenly over
+    `duration_s`. Every slice goes through the RiskManager on its own."""
+
+    slices: int = Field(ge=2, le=1000)
+    duration_s: int = Field(gt=0)
+
+
 class OrderIntent(Model):
     strategy_id: str
     symbol: str
@@ -165,9 +173,12 @@ class OrderIntent(Model):
     tif: TimeInForce = TimeInForce.GTC
     reduce_only: bool = False
     tag: str = ""
+    exec_algo: TwapSpec | None = None
 
     @model_validator(mode="after")
     def _prices(self) -> OrderIntent:
+        if self.exec_algo is not None and self.type not in (OrderType.MARKET, OrderType.LIMIT):
+            raise ValueError("TWAP supports market and limit intents only")
         if self.type in (OrderType.LIMIT, OrderType.STOP_LIMIT) and self.limit_price is None:
             raise ValueError("limit orders need limit_price")
         if self.type in (OrderType.STOP, OrderType.STOP_LIMIT) and self.stop_price is None:

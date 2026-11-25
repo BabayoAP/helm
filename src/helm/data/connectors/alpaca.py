@@ -55,10 +55,14 @@ class AlpacaOhlcvClient:
         *,
         crypto: bool,
         feed: str = "iex",
+        adjustment: str = "raw",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        if adjustment not in ("raw", "split", "dividend", "all"):
+            raise ValueError(f"adjustment must be raw|split|dividend|all, got {adjustment!r}")
         self.crypto = crypto
         self.feed = feed
+        self.adjustment = adjustment  # DATA-9: equities only; crypto has no corporate actions
         self._http = httpx.AsyncClient(
             base_url=DATA_URL, transport=transport, headers=credentials.headers(), timeout=20
         )
@@ -81,6 +85,7 @@ class AlpacaOhlcvClient:
         else:
             path = "/v2/stocks/bars"
             params["feed"] = self.feed
+            params["adjustment"] = self.adjustment
         resp = await self._http.get(path, params=params)
         if resp.status_code == 429:
             raise RateLimitedError("alpaca data 429", retry_after_s=None)
