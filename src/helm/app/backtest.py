@@ -12,6 +12,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from helm.app.engine import Engine
 from helm.backtest.fills import FillPolicy
 from helm.backtest.friction.models import FrictionConfig
@@ -174,6 +176,100 @@ async def run_backtest_async(spec: BacktestSpec, bars: Sequence[Bar]) -> Backtes
     )
     journal.close()
     return result
+
+
+def events_hash(events: Sequence[BaseModel]) -> str:
+    h = hashlib.sha256()
+    for ev in events:
+        h.update(type(ev).__name__.encode())
+        h.update(ev.model_dump_json().encode())
+    return h.hexdigest()
+
+
+def _event_ts(ev: BaseModel) -> int:
+    return int(getattr(ev, "ts_recv", None) or getattr(ev, "ts_close", 0) or getattr(ev, "ts", 0))
+
+
+async def run_replay_async(
+    spec: BacktestSpec, events: Sequence[BaseModel], *, queue_model: bool = True
+) -> BacktestResult:
+    """BT-4: replay recorded quotes/trades/bars through the same engine (I1) with the L1
+    fill model: market orders at the quote, resting limits filled by prints through the
+    limit, or AT the limit once the estimated queue ahead is gone (`queue_model`).
+    The clock follows each event's arrival time, so the run is deterministic (I7)."""
+    from helm.app.paper import dispatch  # noqa: PLC0415
+
+    spec_hash = spec.fingerprint()
+    dh = events_hash(events)
+    run_id = make_run_id(spec_hash + dh + ("q" if queue_model else ""))
+    clock = SimClock(_event_ts(events[0]) if events else 0)
+    mults = {i.symbol: i.contract_multiplier for i in spec.instruments}
+    broker = SimBroker(
+        account_id=spec.account_id,
+        venue=spec.instruments[0].venue,
+        clock=clock,
+        mode=SimMode.L1,
+        friction=FrictionConfig(**{**spec.friction.__dict__, "seed": spec.seed}),
+        starting_cash=spec.starting_equity,
+        multipliers=mults,
+        queue_model=queue_model,
+    )
+    journal = Journal(spec.journal_path, mirror=spec.journal_path != ":memory:")
+    portfolio = Portfolio(starting_equity=spec.starting_equity, multipliers=dict(mults))
+    engine = Engine(
+        mode=Mode.BACKTEST,
+        account_id=spec.account_id,
+        run_id=run_id,
+        clock=clock,
+        broker=broker,
+        risk_config=spec.risk,
+        journal=journal,
+        instruments=InstrumentRegistry(spec.instruments),
+        portfolio=portfolio,
+        code_fn=lambda: "backtest",
+    )
+    engine.bar_mode_synthetic_quotes = False  # real quotes drive risk checks here
+    symbols = tuple(i.symbol for i in spec.instruments)
+    engine.add_strategy(
+        spec.strategy, symbols=symbols, params=spec.params, lifecycle=LifecycleStage.BACKTESTED
+    )
+    exposure: list[bool] = []
+    for ev in events:
+        clock.advance_to(max(clock.now(), _event_ts(ev)))
+        await dispatch(engine, ev)
+        if isinstance(ev, Bar):
+            exposure.append(any(p.qty != 0 for p in portfolio.positions.values()))
+    await engine.stop_strategies()
+    fills = [f for e in journal.entries(kinds=("Fill",)) if isinstance(f := e.decode(), Fill)]
+    metrics = compute_metrics(
+        engine.equity_curve,
+        fills,
+        exposure_flags=exposure,
+        fees_paid=portfolio.fees_paid,
+        turnover=portfolio.turnover,
+        periods_per_year=spec.periods_per_year,
+        n_trials=spec.n_trials,
+        seed=spec.seed,
+    )
+    result = BacktestResult(
+        run_id=run_id,
+        orders=sorted(engine.om.all(), key=lambda o: (o.ts_created, o.client_order_id)),
+        fills=fills,
+        decisions=list(engine.decisions),
+        equity_curve=list(engine.equity_curve),
+        metrics=metrics,
+        stats=dict(engine.stats.__dict__),
+        spec_hash=spec_hash,
+        data_hash=dh,
+    )
+    journal.close()
+    return result
+
+
+def run_replay(
+    spec: BacktestSpec, events: Sequence[BaseModel], *, queue_model: bool = True
+) -> BacktestResult:
+    return asyncio.run(run_replay_async(spec, events, queue_model=queue_model))
 
 
 def run_backtest(spec: BacktestSpec, bars: Sequence[Bar]) -> BacktestResult:

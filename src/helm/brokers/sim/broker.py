@@ -54,8 +54,12 @@ class SimBroker:
         starting_cash: Decimal = Decimal(10_000),
         quote_ccy: str = "USD",
         multipliers: Mapping[str, Decimal] | None = None,
+        queue_model: bool = False,
     ) -> None:
         self.account_id = account_id
+        self.queue_model = queue_model  # BT-4: queue position for resting limits (L1)
+        # size still ahead of each resting order at its price; None = level not at the touch yet
+        self._queue_ahead: dict[str, Decimal | None] = {}
         self.venue = venue
         self.clock = clock
         self.mode = mode
@@ -254,7 +258,38 @@ class SimBroker:
                 self._set(coid, state=OrderState.CANCELED), OrderEventKind.CANCELED, "ioc_unfilled"
             )
         else:
+            if self.queue_model and coid not in self._rested:
+                self._queue_ahead[coid] = self._join_queue(it, q)
             self._rested.add(coid)
+            if self.queue_model:
+                self._update_queue(coid, it, q)
+
+    @staticmethod
+    def _same_side(it: OrderIntent, q: Quote) -> tuple[Decimal, Decimal]:
+        return (q.bid, q.bid_sz) if it.side is Side.BUY else (q.ask, q.ask_sz)
+
+    def _join_queue(self, it: OrderIntent, q: Quote) -> Decimal | None:
+        """Queue ahead on arrival: the displayed size at our price if we join the touch,
+        nothing if we improve it, unknown (None) if we rest behind the touch."""
+        assert it.limit_price is not None
+        best, size = self._same_side(it, q)
+        if it.limit_price == best:
+            return size
+        improves = it.limit_price > best if it.side is Side.BUY else it.limit_price < best
+        return Decimal(0) if improves else None
+
+    def _update_queue(self, coid: str, it: OrderIntent, q: Quote) -> None:
+        assert it.limit_price is not None
+        best, size = self._same_side(it, q)
+        ahead = self._queue_ahead.get(coid)
+        if best == it.limit_price:
+            # our level is the touch: size can only have shrunk from ahead of us (pessimistic:
+            # displayed size at the level never shrinks below what is still in front of us)
+            self._queue_ahead[coid] = size if ahead is None else min(ahead, size)
+        else:
+            beyond = best < it.limit_price if it.side is Side.BUY else best > it.limit_price
+            if beyond:  # the touch moved past our price without crossing: we are first now
+                self._queue_ahead[coid] = Decimal(0)
 
     def on_trade(self, t: Trade) -> None:
         """Resting limits fill (partially) when a live trade prints *through* the limit."""
@@ -272,6 +307,15 @@ class SimBroker:
             through = t.price < it.limit_price if it.side is Side.BUY else t.price > it.limit_price
             if through:
                 self._fill(order, it.limit_price, min(order.remaining, t.size), Liquidity.MAKER)
+            elif self.queue_model and t.price == it.limit_price and coid in self._rested:
+                # BT-4: a print at our price eats the queue ahead first, then us
+                ahead = self._queue_ahead.get(coid)
+                if ahead is None:
+                    continue
+                ours = min(order.remaining, max(Decimal(0), t.size - ahead))
+                self._queue_ahead[coid] = max(Decimal(0), ahead - t.size)
+                if ours > 0:
+                    self._fill(order, it.limit_price, ours, Liquidity.MAKER)
 
     # ------------------------------------------------------------ Broker API
     async def submit(self, order: Order) -> None:

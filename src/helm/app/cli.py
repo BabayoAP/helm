@@ -52,6 +52,8 @@ def cmd_backtest(a: argparse.Namespace) -> int:
         data_dir=a.data_dir,
         adjusted=a.adjusted,
     )
+    if a.replay:
+        return _replay(a)
     bars = source.load()
     if not bars:
         print("no bars in range: run `helm data import|fetch` first, or use --synthetic N")
@@ -85,6 +87,50 @@ def cmd_backtest(a: argparse.Namespace) -> int:
                 "tearsheet": str(path),
                 "run_id": res.run_id,
                 "result_hash": res.result_hash,
+                **{k: v for k, v in res.metrics.to_dict().items() if k != "monte_carlo"},
+            },
+            indent=2,
+            default=str,
+        )
+    )
+    return 0
+
+
+def _replay(a: argparse.Namespace) -> int:
+    """BT-4: replay a recorded session (helm paper --record) with the L1 + queue fill model."""
+    from helm.app.backtest import run_replay, write_report
+    from helm.app.research import RunSettings
+    from helm.backtest.friction.models import FrictionConfig
+    from helm.data.recorder import replay
+
+    events = list(replay(a.replay))
+    if not events:
+        print(f"no events in {a.replay}")
+        return 2
+    settings = RunSettings(
+        strategy=a.strategy,
+        instrument=_instrument(a.symbol, a.tick, a.lot, a.min_notional),
+        starting_equity=Decimal(a.equity),
+        friction=FrictionConfig() if not a.no_friction else FrictionConfig.off(),
+        seed=a.seed,
+    )
+    spec = settings.spec(_params(a.param))
+    res = run_replay(spec, events, queue_model=not a.no_queue)
+    out = Path(a.out) / f"{spec.strategy.id}-replay-{res.run_id}"
+    path = write_report(
+        res,
+        spec,
+        out,
+        title=f"{spec.strategy.id} · replay · {a.symbol}",
+        extra_meta={"engine": "L1 replay", "queue_model": not a.no_queue, "events": len(events)},
+    )
+    print(
+        json.dumps(
+            {
+                "tearsheet": str(path),
+                "run_id": res.run_id,
+                "result_hash": res.result_hash,
+                "events": len(events),
                 **{k: v for k, v in res.metrics.to_dict().items() if k != "monte_carlo"},
             },
             indent=2,
@@ -137,6 +183,10 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     bt.add_argument("--out", default="reports")
     bt.add_argument("--db", default="data/research.sqlite", help="experiment log (RES-2)")
     bt.add_argument("--adjusted", action="store_true", help="use split/dividend-adjusted bars")
+    bt.add_argument(
+        "--replay", default=None, help="recorded session dir: L1 quote/trade replay (BT-4)"
+    )
+    bt.add_argument("--no-queue", action="store_true", help="replay without the queue model")
     bt.add_argument("--no-record", action="store_true")
     bt.set_defaults(handler=cmd_backtest)
 
