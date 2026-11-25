@@ -8,9 +8,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from helm.core.enums import LifecycleStage, Mode
+
+PAPER_ACCOUNT_PREFIX = "paper-"
 
 
 class _Cfg(BaseModel):
@@ -42,6 +44,8 @@ class RiskConfig(_Cfg):
     reconcile_interval_s: int = 60
     reconcile_tolerance_pct: Decimal = Decimal("0.1")
     live_small_capital_pct: Decimal = Field(default=Decimal("2.0"), gt=0)
+    live_small_max_exposure_usd: Decimal = Field(default=Decimal("500"), gt=0)
+    max_strategy_capital_pct: Decimal = Field(default=Decimal("100"), gt=0)  # RISK-8 (Phase 3)
     symbol_allowlist: tuple[str, ...] = ()  # empty = any instrument with metadata
 
     def tightening_violations(self, new: RiskConfig) -> list[str]:
@@ -60,6 +64,8 @@ class RiskConfig(_Cfg):
             "daily_loss_limit_pct",
             "max_drawdown_pct",
             "live_small_capital_pct",
+            "live_small_max_exposure_usd",
+            "max_strategy_capital_pct",
             "reconcile_tolerance_pct",
             "clock_skew_warn_ms",
             "clock_skew_pause_ms",
@@ -94,6 +100,18 @@ class BotConfig(_Cfg):
     timeframe: str = "1m"
     params: dict[str, float | int | str | bool] = Field(default_factory=lambda: {})
     lifecycle: LifecycleStage = LifecycleStage.DRAFT
+
+    @model_validator(mode="after")
+    def _account_matches_mode(self) -> BotConfig:
+        """PAP-2: paper accounts are named paper-*, and only paper accounts may be."""
+        is_paper_acct = self.account_id.startswith(PAPER_ACCOUNT_PREFIX)
+        if self.mode is Mode.LIVE and is_paper_acct:
+            raise ValueError("live bots cannot use a paper-* account_id")
+        if self.mode is not Mode.LIVE and not is_paper_acct:
+            raise ValueError(
+                f"{self.mode.value} bots must use a '{PAPER_ACCOUNT_PREFIX}*' account_id"
+            )
+        return self
 
 
 class EngineConfig(_Cfg):

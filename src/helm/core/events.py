@@ -103,6 +103,17 @@ class NewsEvent(Model):
     ts_event: int
 
 
+class ConfigChanged(Model):
+    """SEC-7: config changes are journaled, including refused ones."""
+
+    section: str
+    before: str
+    after: str
+    source: str
+    accepted: bool
+    ts: int
+
+
 class IntentEvent(Model):
     """An intent emitted by a strategy, journaled before risk sees it (I4)."""
 
@@ -121,6 +132,7 @@ EVENT_TYPES: dict[str, type[BaseModel]] = {
         WalletEvent,
         NewsEvent,
         IntentEvent,
+        ConfigChanged,
         OrderIntent,
         RiskDecision,
         OrderEvent,

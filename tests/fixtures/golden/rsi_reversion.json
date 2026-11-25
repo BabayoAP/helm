@@ -1,0 +1,40 @@
+{
+  "orders": 102,
+  "fills": 102,
+  "trade_count": 51,
+  "end_equity": 9996.2637380871,
+  "fees_paid": 2.13676381,
+  "max_drawdown": 0.0002222207,
+  "first_orders": [
+    [
+      "a9abcee3-rsi_reversion-0",
+      "buy",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "a9abcee3-rsi_reversion-1",
+      "sell",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "a9abcee3-rsi_reversion-2",
+      "buy",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "a9abcee3-rsi_reversion-3",
+      "sell",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "a9abcee3-rsi_reversion-4",
+      "buy",
+      "0.2000",
+      "MKT"
+    ]
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "orders": 92,
+  "fills": 92,
+  "trade_count": 46,
+  "end_equity": 9998.3617189675,
+  "fees_paid": 1.92965086,
+  "max_drawdown": 0.0001275717,
+  "first_orders": [
+    [
+      "44d1d2ed-breakout-0",
+      "buy",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "44d1d2ed-breakout-1",
+      "sell",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "44d1d2ed-breakout-2",
+      "buy",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "44d1d2ed-breakout-3",
+      "sell",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "44d1d2ed-breakout-4",
+      "buy",
+      "0.2000",
+      "MKT"
+    ]
+  ]
+}

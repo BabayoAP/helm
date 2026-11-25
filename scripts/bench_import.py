@@ -64,11 +64,11 @@ def main() -> int:
         )
         dt = time.perf_counter() - t
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        div = 1 if sys.platform == "darwin" else 1  # macOS reports bytes, Linux KiB
-        peak_mb = peak / (1024**2 if sys.platform == "darwin" else 1024) / div
+        unit = 1024**2 if sys.platform == "darwin" else 1024  # macOS reports bytes, Linux KiB
+        peak_mb = peak / unit
         print(
             f"csv={size / 1024**3:.2f} GB rows={rows} written={rep.rows_written} time={dt:.1f}s "
-            f"peak_rss={peak_mb:.0f} MB (before import {rss_before / (1024**2 if sys.platform == 'darwin' else 1024):.0f} MB) "
+            f"peak_rss={peak_mb:.0f} MB (before import {rss_before / unit:.0f} MB) "
             f"gaps={len(rep.validation.gaps)} dupes={rep.validation.duplicates}"
         )
         return 0 if peak_mb < 2048 and rep.rows_written == rows else 1

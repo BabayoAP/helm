@@ -1,0 +1,40 @@
+{
+  "orders": 141,
+  "fills": 141,
+  "trade_count": 70,
+  "end_equity": 9998.1527323894,
+  "fees_paid": 2.95790959,
+  "max_drawdown": 0.0001592957,
+  "first_orders": [
+    [
+      "478de13b-sma_cross-0",
+      "buy",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "478de13b-sma_cross-1",
+      "sell",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "478de13b-sma_cross-2",
+      "buy",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "478de13b-sma_cross-3",
+      "sell",
+      "0.2000",
+      "MKT"
+    ],
+    [
+      "478de13b-sma_cross-4",
+      "buy",
+      "0.2000",
+      "MKT"
+    ]
+  ]
+}

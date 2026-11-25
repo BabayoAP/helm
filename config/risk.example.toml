@@ -20,6 +20,8 @@ daily_reset               = { tz = "UTC", time = "00:00" }
 reconcile_interval_s      = 60
 reconcile_tolerance_pct   = 0.1
 live_small_capital_pct    = 2.0
+live_small_max_exposure_usd = 500             # open decision #3 default
+max_strategy_capital_pct  = 100               # RISK-8 per-strategy allocation (Phase 3)
 symbol_allowlist          = []                   # empty = any instrument with metadata
 
 [security]
