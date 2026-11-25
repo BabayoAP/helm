@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+.hypothesis/
+
+# Runtime data (PRD 7): parquet lake, sqlite, journal
+/data/*
+!/data/.gitkeep
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.jsonl
+!tests/fixtures/**/*.jsonl
+
+# Secrets: never committed (SEC-2)
+.env
+.env.*
+*.age
+!*.sops.age
+secrets/
+config/*.toml
+!config/*.example.toml
+
+# UI
+ui/node_modules/
+ui/.next/
+ui/out/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

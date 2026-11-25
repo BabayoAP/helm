@@ -1,0 +1,115 @@
+[project]
+name = "helm"
+version = "0.1.0"
+description = "Helm: personal algorithmic trading terminal and research platform"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.14.4",
+    "structlog>=26.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.17",
+    "import-linter>=2.17",
+    "pre-commit>=4.7.0",
+    "pyright>=1.1.414",
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.6",
+]
+
+[project.scripts]
+helm = "helm.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/helm"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "DTZ", "PL", "TID"]
+ignore = [
+    "PLR0913",  # many args: config-heavy constructors
+    "PLR0917",  # positional args: test builders
+    "S311",     # seeded random.Random is intentional (determinism, I7); never used for crypto
+    "PLR2004",  # magic values: tests and thresholds
+    "PLR0911", "PLR0912", "PLR0915",
+    "S101",     # assert is fine in tests and invariants
+    "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PLC0415", "DTZ"]
+"src/helm/cli.py" = ["PLC0415"]  # lazy imports keep CLI startup fast
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+strict = ["src/helm/core", "src/helm/risk", "src/helm/oms"]
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+pythonpath = ["."]
+markers = [
+    "slow: long-running (soak/bench) tests, excluded from make check",
+    "chaos: fault-injection tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/helm"]
+
+[tool.importlinter]
+root_packages = ["helm"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "core is a leaf: imports nothing else from helm"
+type = "forbidden"
+source_modules = ["helm.core"]
+forbidden_modules = [
+    "helm.data", "helm.infra", "helm.strategy", "helm.risk", "helm.oms", "helm.brokers",
+    "helm.backtest", "helm.research", "helm.tracking", "helm.app", "helm.api", "helm.telegram",
+]
+
+[[tool.importlinter.contracts]]
+name = "risk imports only core (PRD 7, 10)"
+type = "forbidden"
+source_modules = ["helm.risk"]
+forbidden_modules = [
+    "helm.data", "helm.infra", "helm.strategy", "helm.oms", "helm.brokers",
+    "helm.backtest", "helm.research", "helm.tracking", "helm.app", "helm.api", "helm.telegram",
+]
+
+[[tool.importlinter.contracts]]
+name = "strategies cannot reach brokers, OMS, secrets or the network (PRD 6.3, 7)"
+type = "forbidden"
+source_modules = ["helm.strategy.api", "helm.strategy.context", "helm.strategy.examples"]
+forbidden_modules = [
+    "helm.brokers", "helm.oms", "helm.infra", "helm.app", "helm.api", "helm.telegram",
+    "ccxt", "websockets", "aiohttp", "httpx", "requests", "socket", "urllib", "http",
+    "os", "subprocess", "time",
+]
+
+[[tool.importlinter.contracts]]
+name = "research and backtest hold no secrets and no live brokers (PRD 7, SEC-4)"
+type = "forbidden"
+source_modules = ["helm.research", "helm.backtest"]
+forbidden_modules = ["helm.infra.secrets", "helm.brokers.live", "helm.telegram"]
+
+[[tool.importlinter.contracts]]
+name = "api sends control commands only, never touches brokers (PRD 6.1, 7)"
+type = "forbidden"
+source_modules = ["helm.api"]
+forbidden_modules = ["helm.brokers", "helm.infra.secrets"]

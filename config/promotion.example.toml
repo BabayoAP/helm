@@ -1,0 +1,8 @@
+# PRD 13: thresholds for each manual, journaled lifecycle transition.
+[promotion]
+min_trades_backtest      = 30
+min_deflated_sharpe      = 0.95
+min_paper_days           = 14
+min_paper_trades         = 20
+parity_pnl_tolerance_bp  = 1
+min_live_small_days      = 14

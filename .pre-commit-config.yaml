@@ -1,0 +1,20 @@
+# PRD 5, SEC-2: ruff + gitleaks on every commit.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (staged)
+        entry: gitleaks git --pre-commit --staged --redact --no-banner
+        language: system
+        pass_filenames: false
+      - id: no-dotenv
+        name: forbid .env files (SEC-2)
+        entry: .env files are not allowed; use the secrets store
+        language: fail
+        files: (^|/)\.env(\..*)?$

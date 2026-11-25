@@ -1,0 +1,28 @@
+# Appendix A. Copy to config/risk.toml (gitignored) and adjust.
+# Risk can be tightened at runtime, loosened only by restart (EXE-7).
+[risk]
+max_position_pct_equity   = 10.0
+max_gross_leverage        = 2.0
+max_order_notional_usd    = 500
+fat_finger_pct            = 3.0
+max_orders_per_min        = 30
+max_orders_per_min_global = 60
+max_open_orders           = 20
+max_consecutive_rejects   = 5
+stale_feed_ms             = 2000
+feed_healthy_clear_s      = 10
+clock_skew_warn_ms        = 250
+clock_skew_pause_ms       = 1000
+daily_loss_limit_pct      = 3.0
+max_drawdown_pct          = 10.0
+on_daily_loss             = "flatten_and_halt"   # or "cancel_and_halt"
+daily_reset               = { tz = "UTC", time = "00:00" }
+reconcile_interval_s      = 60
+reconcile_tolerance_pct   = 0.1
+live_small_capital_pct    = 2.0
+symbol_allowlist          = []                   # empty = any instrument with metadata
+
+[security]
+attest_no_withdrawal      = false     # must be true for venues that can't report key permissions
+telegram_allowed_user_ids = []
+telegram_allowed_chat_ids = []
