@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Helm: personal algorithmic trading terminal and research platform"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=2.14.0",
     "ccxt>=4.5.94",
     "duckdb>=2.0.1",
     "fastapi>=0.165.0",
@@ -108,7 +109,7 @@ type = "forbidden"
 source_modules = ["helm.strategy.api", "helm.strategy.context", "helm.strategy.examples"]
 forbidden_modules = [
     "helm.brokers", "helm.oms", "helm.infra", "helm.app", "helm.api", "helm.telegram",
-    "ccxt", "websockets", "aiohttp", "httpx", "requests", "socket", "urllib", "http",
+    "ccxt", "websockets", "aiohttp", "httpx", "requests", "socket", "urllib", "http", "anthropic",
     "os", "subprocess", "time",
 ]
 

@@ -146,8 +146,10 @@ def test_ui_static_build_is_served_same_origin(tmp_path: Path) -> None:
     ui = tmp_path / "out"
     ui.mkdir()
     (ui / "index.html").write_text("<html>helm</html>")
-    c = TestClient(create_app(EnginePort(eng, venue="fake"), token=TOKEN, static_dir=ui))
-    c.base_url = httpx.URL("http://localhost")
+    c = TestClient(
+        create_app(EnginePort(eng, venue="fake"), token=TOKEN, static_dir=ui),
+        base_url="http://localhost",
+    )
     assert "helm" in c.get("/").text
 
 

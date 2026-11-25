@@ -290,6 +290,33 @@ def cmd_divergence(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_draft(a: argparse.Namespace) -> int:
+    """RES-5: idea (Claude) or file -> static check -> lint -> sandboxed lookahead +
+    smoke backtest. The output is a draft + report. It can never promote or deploy."""
+    from helm.research.sandbox.generate import GenerationError, generate_draft
+    from helm.research.sandbox.pipeline import check_draft
+
+    if a.file:
+        source = Path(a.file).read_text(encoding="utf-8")
+    elif a.idea:
+        try:
+            source = generate_draft(a.idea)
+        except GenerationError as exc:
+            print(f"generation failed: {exc}", file=sys.stderr)
+            return 2
+    else:
+        print('give --idea "..." or --file draft.py', file=sys.stderr)
+        return 2
+    rep = check_draft(source, drafts_dir=Path(a.drafts_dir))
+    print(json.dumps(rep.to_dict(), indent=2, default=str))
+    print(
+        "DRAFT ONLY: review it, move it under src/helm/strategy/ yourself, then backtest,"
+        " validate and promote it like any other strategy.",
+        file=sys.stderr,
+    )
+    return 0 if rep.ok else 1
+
+
 # ------------------------------------------------------------------ promote
 def _lookahead_ok(strategy: str, params: dict[str, Any], symbol: str) -> bool:
     from helm.app.research import DataSource, instrument_for_symbol
@@ -424,6 +451,12 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     rr.add_argument("run_id")
     rr.add_argument("--db", default=DEFAULT_DB)
     rr.set_defaults(handler=cmd_rerun)
+    dr = rs.add_parser("draft", help="AI/hand draft -> sandboxed checks (RES-5); never deploys")
+    src = dr.add_mutually_exclusive_group()
+    src.add_argument("--idea", default=None, help="natural-language idea (uses the Claude API)")
+    src.add_argument("--file", default=None, help="check an existing draft file")
+    dr.add_argument("--drafts-dir", default="data/drafts")
+    dr.set_defaults(handler=cmd_draft)
     pa = rs.add_parser("parity", help="paper vs backtest replay of a recorded feed (§13)")
     pa.add_argument("--recording", required=True, help="session dir from helm paper --record")
     pa.add_argument("--paper-journal", required=True)
