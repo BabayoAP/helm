@@ -78,9 +78,14 @@ def cmd_live(a: argparse.Namespace) -> int:
     acct_dir = data_dir / "accounts" / bot.account_id
 
     async def run() -> int:
-        broker = build_broker(
-            bot, env=os.environ, clock=clock, live_factory=live_factory(cfg, store, clock)
-        )
+        try:
+            broker = build_broker(
+                bot, env=os.environ, clock=clock, live_factory=live_factory(cfg, store, clock)
+            )
+        except HelmError as exc:
+            log.error("live_refused", error=str(exc))
+            print(f"refusing to run live: {exc}", file=sys.stderr)
+            return 3
         assert isinstance(broker, AlpacaBroker)
         try:
             acct, warnings = await broker.preflight(
